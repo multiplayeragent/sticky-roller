@@ -1,0 +1,1157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sticky Roller</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: #a8dcff; }
+  body { font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #fff; user-select: none; -webkit-user-select: none; }
+  canvas { display: block; touch-action: none; }
+  .hud { position: fixed; pointer-events: none; text-shadow: 0 2px 4px #0009; font-weight: 800; }
+  #size { top: max(12px, env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left)); font-size: 40px; line-height: 1; font-variant-numeric: tabular-nums; }
+  #size small { display: block; margin-top: 4px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; opacity: .85; }
+  #time { top: max(12px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); font-size: 30px; line-height: 1; font-variant-numeric: tabular-nums; }
+  #time.low { color: #ff6b6b; }
+  #top { top: calc(max(12px, env(safe-area-inset-top)) + 40px); right: max(16px, env(safe-area-inset-right)); width: 150px; font-size: 13px; font-weight: 700; }
+  #top div { display: flex; justify-content: space-between; gap: 8px; white-space: nowrap; }
+  #top span:first-child { overflow: hidden; text-overflow: ellipsis; }
+  #top i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+  #top .me { color: #ffe14d; }
+  #net { bottom: max(10px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-size: 12px; font-weight: 600; opacity: .9; white-space: nowrap; }
+  #hint { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 26px); left: 0; right: 0; text-align: center; font-size: 16px; padding: 0 16px; }
+  body.touch #net { bottom: calc(max(16px, env(safe-area-inset-bottom)) + 140px); }
+  body.touch #hint { bottom: calc(max(16px, env(safe-area-inset-bottom)) + 160px); }
+  #count { inset: 0; display: grid; place-items: center; font-size: min(26vw, 170px); color: #ffd23f; -webkit-text-stroke: 4px #6a2c00; }
+  #msg { top: 24%; left: 0; right: 0; padding: 0 16px; text-align: center; font-size: 28px; color: #ffe14d; -webkit-text-stroke: 1.5px #6a3d00; transition: opacity .3s, transform .3s; opacity: 0; transform: scale(.85); }
+  #msg.on { opacity: 1; transform: scale(1); }
+  #over { position: fixed; inset: 0; display: grid; place-items: center; background: #0a1a3066; }
+  #over[hidden], .touch[hidden] { display: none; }
+  .card { box-sizing: border-box; width: min(380px, calc(100vw - 32px)); max-height: 86vh; overflow: auto; padding: 20px; border-radius: 16px; background: #1b2140f2; border: 1px solid #ffffff2a; }
+  .card h2 { margin: 0 0 8px; font-size: 22px; }
+  .card h3 { margin: 14px 0 4px; font-size: 14px; color: #ffe14d; }
+  .card ol { margin: 0; padding-left: 24px; font-size: 14px; }
+  .card li span { float: right; font-variant-numeric: tabular-nums; }
+  .card li i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+  .card li.me { color: #ffe14d; font-weight: 700; }
+  .card li.note { list-style: none; margin-left: -24px; opacity: .8; }
+  .card p { margin: 12px 0 0; font-size: 13px; opacity: .8; }
+  button.go { width: 100%; min-height: 48px; margin-top: 14px; border: 0; border-radius: 12px; background: #3ddc84; color: #06240f; font: 800 17px system-ui, sans-serif; cursor: pointer; }
+  #stick { position: fixed; left: max(24px, env(safe-area-inset-left)); bottom: max(24px, env(safe-area-inset-bottom)); width: 128px; height: 128px; border-radius: 50%; background: #ffffff22; border: 2px solid #ffffff88; touch-action: none; }
+  #knob { position: absolute; left: 39px; top: 39px; width: 50px; height: 50px; border-radius: 50%; background: #ffffffaa; }
+  #dashBtn { position: fixed; right: max(24px, env(safe-area-inset-right)); bottom: max(30px, env(safe-area-inset-bottom)); width: 96px; height: 96px; border-radius: 50%; border: 2px solid #ffffffaa; background: #ffffff33; color: #fff; font: 800 16px system-ui, sans-serif; touch-action: none; }
+  #dashBtn.on { background: #ffffff77; }
+  #dashBtn.wait { opacity: .45; }
+</style>
+<script src="https://cdn.multiplayeragent.com/sdk/mp.global.js"></script>
+<script type="importmap">{ "imports": { "three": "./libs/three.module.min.js" } }</script>
+</head>
+<body>
+<div class="hud" id="size"></div>
+<div class="hud" id="time"></div>
+<div class="hud" id="top"></div>
+<div class="hud" id="hint"></div>
+<div class="hud" id="net">Connecting…</div>
+<div class="hud" id="count"></div>
+<div class="hud" id="msg"></div>
+<div class="touch" id="stick" hidden><div id="knob"></div></div>
+<button class="touch" id="dashBtn" hidden>DASH</button>
+<div id="over" hidden><div class="card">
+  <h2 id="overTitle">Time's up!</h2><ol id="results"></ol>
+  <h3>Biggest balls ever rolled</h3><ol id="board"><li class="note">Loading…</li></ol>
+  <button class="go" id="again">Play again</button>
+  <p id="next"></p>
+</div></div>
+<script type="module">
+/* ═══ STICKY ROLLER · a Multiplayer Agent starter ═════════════════════════════════════
+ * Roll a sticky ball around a toy town. Anything smaller than you sticks on and you grow:
+ * crumbs, then toys, chairs, cars and houses. Roll up smaller players too. The biggest
+ * ball when time runs out wins. Party, 2–8 players; bots fill empty seats.
+ *
+ * WHERE THINGS ARE (search for the "── " headers):
+ *   CONFIG ........ sizes, speeds, timers, bots, and `things`: every kind of thing in the
+ *                   town (how big, how many, how far from the middle)
+ *   CONNECTION .... MP_CONNECT, joining, the offline room, who is host
+ *   TOWN .......... lays the things out from the round's seed (the same on every screen)
+ *   LOOKS ......... what each kind of thing looks like, built from boxes, balls and cones
+ *   SCENE ......... sky, grass, the picnic blanket, the ring road, the fence, lights
+ *   BALLS ......... rolling (one function for you and the bots), bumping, the ball model
+ *   ROUND (HOST) .. the round, who owns which thing, roll-ups, bots. Only the host writes these.
+ *   ME ............ steering, rolling things up, respawning. Each player writes only its own.
+ *   THINGS ON SCREEN  where each thing is drawn: on the ground or stuck on a ball
+ *   EFFECTS ....... confetti, sounds
+ *   HUD & RESULTS . size, timer, top 5, countdown, results, leaderboard
+ *   INPUT ......... keyboard, and a touch stick plus a Dash button
+ *
+ * HOW THE MULTIPLAYER WORKS (a relay room: no server code):
+ *   - Each player rolls its OWN ball and writes it to its entity as `m` (one packed JSON
+ *     field: round id, position, velocity) about 12 times a second, plus `hb` (heartbeat)
+ *     once a second and `n`/`c` (name, color) once.
+ *   - The town comes from the round's seed, so every screen builds the same things with the
+ *     same ids. The HOST decides who owns each one: shared `taken` is one string with a
+ *     character per thing ("." = on the ground, a letter = stuck on that ball).
+ *   - Intent "grab" {ids}: you touched things you can roll up. Your screen sticks them on
+ *     at once; the host gives each one to the FIRST ball that asked and grows that ball.
+ *     If someone beat you to it, it jumps over to their ball on your screen.
+ *   - The host also decides roll-ups: a ball under 3/4 of another's size that ends up
+ *     inside it bursts, loses part of its size (its biggest things go to the bigger ball)
+ *     and respawns somewhere else.
+ *   - Shared `balls` (host only): version `v`, every ball's letter, size, burst count and
+ *     respawn spot, plus the bots' positions. Sizes are decided by the host, so you read
+ *     yours here. Shared `round` (host only): id, version `v`, phase, seed, timers, results.
+ *     The HOST is the lowest sessionId among live players (heartbeat seen in the last 3s),
+ *     worked out every frame. A new host adopts all three fields and carries on.
+ *   - A tab that was frozen or hidden for over 1s, or lost its connection, forgets it was host,
+ *     waits 0.7s for the newer state to arrive, then adopts it; nobody writes a `v` lower than
+ *     the shared one, and nobody hosts while disconnected.
+ *   - Event "pop" {v, by, x, z, r, c}: a burst, for the effect only.
+ *   - Intent "again" {} from the results card asks the host to start the next round now.
+ *   - ?attract plays offline with bots only (the preview video is recorded from it).
+ *   - Leaderboard "biggest-ball": each player's biggest ball at the end of a round, in cm.
+ */
+import * as THREE from "three";
+
+// ── CONFIG ──────────────────────────────────────────────────────────────────────────
+const CONFIG = {
+  seats: 8,               // bots fill the room up to this many balls
+  roundMs: 120000,        // how long a round lasts
+  countdown: 3000,        // ms of "3, 2, 1" before rolling
+  resultsFor: 12000,      // ms the results show before the next round
+  startSize: 0.5,         // a new ball's radius (1 unit = 10 cm, so you start 10 cm across)
+  pickRatio: 0.7,         // you can roll up things under this share of your radius...
+  minPick: 0.05,          // ...and you just roll over things under this share
+  growth: 0.4,            // a thing of size s adds growth × s² to your radius²
+  speed: 7,               // top speed at radius 1, in units/s...
+  speedPow: 0.5,          // ...times radius^speedPow, so bigger balls roll faster
+  accel: 2.6,             // how quickly you get up to speed
+  drag: 1.4,              // rolling slowdown, per second
+  turn: 2.6,              // turning speed, radians/s
+  grip: 3.5,              // how fast sideways sliding fades when you turn
+  dash: 1.8, dashMs: 650, dashEvery: 2500, // Space / DASH: speed boost, how long, how often
+  eatRatio: 0.75,         // a ball under this share of your radius can be rolled up...
+  burstLoss: 0.3,         // ...it loses this share of its radius...
+  eatGain: 0.8,           // ...and the bigger ball gains this share of what it lost
+  safeFor: 3000,          // ms a respawned ball can't be rolled up
+  graceMs: 20000,         // nobody can be rolled up in the first 20s of a round
+  buryAfter: 12000,       // ms before a thing buried deep in a ball goes back to its spot (so crumbs never run out)
+  world: 175,             // the town's radius, inside the fence
+  road: 98,               // the ring road's radius (cars and vans park on it)
+  botSkill: [0.7, 0.86],  // bots' top speed, as a share of yours
+  botStart: null,         // [min, max] starting radius for bots (null = startSize)
+  board: "biggest-ball",
+  // Every kind of thing in the town. size = [min, max] radius in units; count = how many;
+  // ring = [from, to] distance from the middle; face: "road" parks it along the road,
+  // "middle" turns its front to the middle; tints = colors it comes in; unlock = the toast
+  // when you first get big enough for it. Things sit in order of size, small first.
+  things: [
+    { type: "crumb",     size: [0.08, 0.13], count: 90, ring: [0, 14] },
+    { type: "coin",      size: [0.11, 0.16], count: 50, ring: [0, 24] },
+    { type: "candy",     size: [0.14, 0.2],  count: 60, ring: [0, 20], tints: ["#ff7eb6", "#7ee0ff", "#b6ff7e", "#d59bff", "#ffd27e"] },
+    { type: "cookie",    size: [0.18, 0.27], count: 55, ring: [0, 16] },
+    { type: "die",       size: [0.24, 0.32], count: 40, ring: [3, 30], tints: ["#ffffff", "#ffe8f0", "#e8f4ff"], unlock: "toys" },
+    { type: "crayon",    size: [0.28, 0.38], count: 40, ring: [4, 32], tints: ["#ff4d4d", "#4da6ff", "#ffd23f", "#52d273", "#c77dff"] },
+    { type: "block",     size: [0.34, 0.48], count: 55, ring: [5, 55], tints: ["#ff5a5a", "#4da6ff", "#ffd23f", "#52d273", "#ff8c42"] },
+    { type: "duck",      size: [0.42, 0.58], count: 40, ring: [8, 60], tints: ["#ffd84d", "#ffe680", "#ff9ccf"] },
+    { type: "mug",       size: [0.48, 0.62], count: 25, ring: [6, 40], tints: ["#ffffff", "#ffd0d0", "#d0e8ff"] },
+    { type: "toycar",    size: [0.55, 0.78], count: 40, ring: [10, 66], tints: ["#ff4d4d", "#4da6ff", "#ffd23f", "#52d273"] },
+    { type: "book",      size: [0.8, 1.05],  count: 38, ring: [15, 70], tints: ["#ff6b6b", "#5fa8ff", "#6bd88a", "#c38bff", "#ffb04d"], unlock: "books and teddies" },
+    { type: "teddy",     size: [0.95, 1.3],  count: 28, ring: [18, 75], tints: ["#ffffff", "#ffe2c4", "#ffd6e6"] },
+    { type: "beachball", size: [0.9, 1.25],  count: 24, ring: [20, 80] },
+    { type: "cone",      size: [1.15, 1.5],  count: 28, ring: [28, 88] },
+    { type: "chair",     size: [1.45, 1.95], count: 32, ring: [30, 88], tints: ["#d9985a", "#ff8c42", "#5fa8ff", "#6bd88a"], unlock: "chairs" },
+    { type: "bike",      size: [1.8, 2.4],   count: 16, ring: [40, 90], tints: ["#ff4d4d", "#4da6ff", "#52d273", "#c77dff"], unlock: "bikes" },
+    { type: "mailbox",   size: [1.7, 2.2],   count: 14, ring: [55, 108], tints: ["#4d7dff", "#ff5a5a", "#52d273"] },
+    { type: "bench",     size: [2.4, 3],     count: 16, ring: [50, 108] },
+    { type: "car",       size: [3, 4],       count: 18, ring: [93, 103], face: "road", tints: ["#ff4d4d", "#4da6ff", "#ffd23f", "#52d273", "#ffffff", "#c77dff"], unlock: "cars" },
+    { type: "tree",      size: [3.4, 5],     count: 24, ring: [60, 150], tints: ["#ffffff", "#e6ffd0", "#fff0b0"], unlock: "trees" },
+    { type: "van",       size: [4.2, 5.2],   count: 8,  ring: [93, 103], face: "road", tints: ["#ffffff", "#ffe08a", "#9fd0ff"] },
+    { type: "house",     size: [7, 9.5],     count: 14, ring: [118, 160], face: "middle", tints: ["#ffffff", "#ffe6d0", "#e0f0ff", "#fff3b0", "#e6ffe0"], unlock: "houses" },
+    { type: "tower",     size: [10, 12],     count: 5,  ring: [135, 165], face: "middle", tints: ["#ffffff", "#ffe6d0", "#e0f0ff"], unlock: "towers" },
+  ],
+};
+const BOT_NAMES = ["Mochi", "Pudding", "Gumball", "Noodle", "Pickles", "Waffles", "Sprout", "Biscuit"];
+const COLORS = ["#ff4d6d", "#4dabff", "#ffd23f", "#52d273", "#c77dff", "#ff8c42", "#3de0d0", "#ff6fb5"];
+const SLOTS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"; // one letter per ball in `taken`
+
+// ── CONNECTION ──────────────────────────────────────────────────────────────────────
+// The builder fills these in for this game. Downloaded from GitHub? Put your own pk_ key here.
+const MP_CONNECT = {
+  key: 'pk_REPLACE_ME',
+  room: 'sticky-roller',
+  endpoint: 'wss://live.multiplayeragent.com',
+  apiUrl: 'https://api.multiplayeragent.com',
+};
+const ATTRACT = new URLSearchParams(location.search).has("attract");
+const TEST = new URLSearchParams(location.search).has("test");
+if (ATTRACT) Object.assign(CONFIG, { seats: 7, countdown: 400, graceMs: 0, roundMs: 90000, attractStart: 1.2, botStart: [0.5, 1.4] });
+if (TEST && new URLSearchParams(location.search).get("cfg")) Object.assign(CONFIG, JSON.parse(new URLSearchParams(location.search).get("cfg"))); // tests only: try other numbers
+
+/** Same shape as the SDK client, kept in this tab: offline play and ?attract. */
+function localRoom() {
+  const id = "local", state = { entities: { players: { [id]: {} } }, shared: {} }, subs = [];
+  let queued = false;
+  const emit = () => { if (!queued) { queued = true; queueMicrotask(() => { queued = false; subs.forEach((f) => f(state)); }); } };
+  const put = (o, k, v) => { if (typeof k === "object") Object.assign(o, k); else o[k] = v; emit(); };
+  return {
+    sessionId: id, state, offline: true,
+    me: { set: (k, v) => put(state.entities.players[id], k, v) },
+    setShared: (k, v) => put(state.shared, k, v),
+    onState: (f) => { subs.push(f); f(state); }, onJoin() {}, onLeave() {}, on() {}, send() {},
+    onDisconnect() {}, onReconnect() {}, leave: async () => {},
+  };
+}
+async function connect() {
+  if (ATTRACT || typeof MP === "undefined") return localRoom();
+  try {
+    const mp = await Promise.race([MP.join({ ...MP_CONNECT }), new Promise((_, no) => setTimeout(() => no(new Error("timed out")), 10000))]);
+    window.mp = mp; // the builder calls window.mp.leave() when the page closes
+    return mp;
+  } catch (e) {
+    console.warn("Playing offline:", e && e.message);
+    return localRoom();
+  }
+}
+const parse = (v, fb) => { if (typeof v !== "string") return fb; try { return JSON.parse(v); } catch { return fb; } };
+const memo = new Map();
+/** A shared JSON field, parsed once per change (read-only: never change what this returns). */
+function shared(key, fb) {
+  const raw = S.shared[key], m = memo.get(key);
+  if (m && m.raw === raw) return m.v;
+  const v = parse(raw, fb); memo.set(key, { raw, v }); return v;
+}
+let net = null, S = { entities: { players: {} }, shared: {} }, dropped = false;
+const seenHb = new Map();
+function livePlayers() {
+  const now = performance.now(), out = [];
+  for (const [id, p] of Object.entries(S.entities.players || {})) {
+    const s = seenHb.get(id);
+    if (!s || s.hb !== p.hb) seenHb.set(id, { hb: p.hb, at: now });
+    if (id === net.sessionId || now - seenHb.get(id).at < 3000) out.push(id);
+  }
+  return out.sort();
+}
+const isHost = () => livePlayers()[0] === net.sessionId;
+
+// ── TOWN ────────────────────────────────────────────────────────────────────────────
+// A round's seed lays out every thing; the ids are the order they're made in.
+function mulberry32(a) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+const N_THINGS = CONFIG.things.reduce((n, d) => n + d.count, 0); // `taken` has one character per thing
+let town = [];
+/** Every thing for one round: { i, d (kind), k (its number among its kind), s (size), x, z, y, fp, homeQ, tint, seedDir, rot }. */
+function makeTown(seed) {
+  const rand = mulberry32(seed), out = [];
+  CONFIG.things.forEach((def, d) => {
+    const L = LOOK[d];
+    for (let k = 0; k < def.count; k++) {
+      const s = lerp(def.size[0], def.size[1], rand());
+      let x = 0, z = 0, a = 0;
+      for (let tries = 0; tries < 20; tries++) { // somewhere in its ring, not on top of anything, off the road unless it parks there
+        a = rand() * Math.PI * 2;
+        const dist = Math.sqrt(lerp(def.ring[0] ** 2, def.ring[1] ** 2, rand()));
+        x = Math.cos(a) * dist; z = Math.sin(a) * dist;
+        if (def.face !== "road" && Math.abs(dist - CONFIG.road) < 7 + s * L.fp) continue;
+        if (out.every((o) => (o.x - x) ** 2 + (o.z - z) ** 2 > ((o.s * o.fp + s * L.fp) * 0.9) ** 2)) break;
+      }
+      const yaw = def.face === "road" ? -a - Math.PI / 2 + (rand() < 0.5 ? Math.PI : 0) : def.face === "middle" ? Math.atan2(-Math.cos(a), -Math.sin(a)) : rand() * Math.PI * 2;
+      const tints = def.tints || ["#ffffff"], tint = tints[Math.floor(rand() * tints.length)];
+      const seedDir = new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5).normalize(); // where it sits on a ball when we didn't see it stick
+      const rot = new THREE.Quaternion().setFromEuler(new THREE.Euler(rand() * 6.3, rand() * 6.3, rand() * 6.3));
+      out.push({ i: out.length, d, k, s, x, z, y: L.hy * s, fp: L.fp, homeQ: new THREE.Quaternion().setFromAxisAngle(UP, yaw), tint, seedDir, rot, shown: undefined, wp: new THREE.Vector3(x, L.hy * s, z) });
+    }
+  });
+  return out;
+}
+const UP = new THREE.Vector3(0, 1, 0);
+
+// ── LOOKS ───────────────────────────────────────────────────────────────────────────
+// Each kind of thing is a few simple parts merged into one mesh with vertex colors. White
+// parts take the thing's tint; dark parts stay dark. Models face +x (cars) or +z (houses).
+const SH = {
+  box: new THREE.BoxGeometry(1, 1, 1), ball: new THREE.SphereGeometry(1, 12, 9), cyl: new THREE.CylinderGeometry(1, 1, 1, 12),
+  cone: new THREE.ConeGeometry(1, 1, 12), roof: new THREE.ConeGeometry(1, 1, 4).rotateY(Math.PI / 4), rock: new THREE.DodecahedronGeometry(1, 0),
+  blob: new THREE.IcosahedronGeometry(1, 0), ring: new THREE.TorusGeometry(1, 0.14, 6, 16),
+};
+const H = Math.PI / 2;
+/** One part: a shape, a color (or a function of the point), where, how big, how turned. */
+const part = (shape, color, at = [0, 0, 0], size = [1, 1, 1], rot = [0, 0, 0]) => ({ shape, color, at, size, rot });
+const wheels = (xs, y, zs, r, w) => xs.flatMap((x) => zs.map((z) => part(SH.cyl, "#262626", [x, y, z], [r, w, r], [H, 0, 0])));
+const LOOKS = {
+  crumb: () => [part(SH.rock, "#d9a55b", [0, 0, 0], [1, 0.55, 0.8])],
+  coin: () => [part(SH.cyl, "#e8a923", [0, 0, 0], [1, 0.16, 1]), part(SH.cyl, "#ffd95a", [0, 0.012, 0], [0.78, 0.16, 0.78])],
+  candy: () => [part(SH.ball, "#ffffff", [0, 0, 0], [0.6, 0.55, 0.55]), part(SH.cone, "#ffffff", [0.85, 0, 0], [0.38, 0.5, 0.38], [0, 0, H]), part(SH.cone, "#ffffff", [-0.85, 0, 0], [0.38, 0.5, 0.38], [0, 0, -H])],
+  cookie: () => [part(SH.cyl, "#c98a4b", [0, 0, 0], [1, 0.26, 1]), ...[[0.4, 0.2], [-0.35, 0.35], [-0.1, -0.45], [0.45, -0.35], [-0.5, -0.1], [0.05, 0.05]].map(([x, z]) => part(SH.ball, "#4a2a14", [x, 0.13, z], [0.14, 0.08, 0.14]))],
+  die: () => {
+    const pip = (at, rot) => part(SH.cyl, "#262626", at, [0.09, 0.04, 0.09], rot);
+    return [part(SH.box, "#ffffff"), ...[[0, 0], [-0.25, -0.25], [0.25, 0.25], [-0.25, 0.25], [0.25, -0.25]].map(([a, b]) => pip([a, 0.5, b])),
+      pip([-0.2, 0.2, 0.5], [H, 0, 0]), pip([0.2, -0.2, 0.5], [H, 0, 0]), ...[-0.25, 0, 0.25].map((a) => pip([0.5, a, a], [0, 0, H]))];
+  },
+  crayon: () => [part(SH.cyl, "#ffffff", [0, 0, 0], [0.22, 2, 0.22], [0, 0, H]), part(SH.cone, "#ffffff", [1.25, 0, 0], [0.22, 0.5, 0.22], [0, 0, -H]), part(SH.cyl, "#555555", [-0.2, 0, 0], [0.235, 1, 0.235], [0, 0, H])],
+  block: () => [part(SH.box, "#ffffff"), part(SH.box, "#f6f6f6", [0, 0.5, 0], [0.7, 0.04, 0.7]), part(SH.box, "#f6f6f6", [0, 0, 0.5], [0.7, 0.7, 0.04])],
+  duck: () => [part(SH.ball, "#ffffff", [0, 0, 0], [0.75, 0.55, 0.6]), part(SH.ball, "#ffffff", [0.45, 0.55, 0], [0.38, 0.38, 0.38]), part(SH.cone, "#ff8c1a", [0.92, 0.5, 0], [0.13, 0.35, 0.13], [0, 0, -H]),
+    part(SH.ball, "#111111", [0.72, 0.66, 0.18], [0.06, 0.06, 0.06]), part(SH.ball, "#111111", [0.72, 0.66, -0.18], [0.06, 0.06, 0.06]), part(SH.cone, "#ffffff", [-0.78, 0.2, 0], [0.18, 0.35, 0.18], [0, 0, 0.9])],
+  mug: () => [part(SH.cyl, "#ffffff", [0, 0, 0], [0.55, 1.1, 0.55]), part(SH.ring, "#ffffff", [0.62, 0, 0], [0.32, 0.32, 0.6]), part(SH.cyl, "#5a3315", [0, 0.55, 0], [0.5, 0.02, 0.5])],
+  toycar: () => [part(SH.box, "#ffffff", [0, 0, 0], [1.6, 0.45, 0.85]), part(SH.box, "#2a3a4a", [-0.1, 0.4, 0], [0.8, 0.4, 0.78]), ...wheels([-0.55, 0.55], -0.22, [-0.43, 0.43], 0.24, 0.18)],
+  book: () => [part(SH.box, "#ffffff", [0, 0, 0], [1.5, 0.36, 1.1]), part(SH.box, "#fff6dc", [0.06, 0, 0], [1.42, 0.3, 1.04])],
+  teddy: () => [part(SH.ball, "#c48a52", [0, -0.25, 0], [0.62, 0.7, 0.55]), part(SH.ball, "#c48a52", [0, 0.6, 0], [0.45, 0.45, 0.45]), part(SH.ball, "#c48a52", [0.33, 0.98, 0], [0.17, 0.17, 0.12]),
+    part(SH.ball, "#c48a52", [-0.33, 0.98, 0], [0.17, 0.17, 0.12]), part(SH.ball, "#f0d2a8", [0, 0.52, 0.4], [0.2, 0.16, 0.14]), part(SH.ball, "#222222", [0, 0.58, 0.53], [0.06, 0.05, 0.05]),
+    part(SH.ball, "#222222", [0.16, 0.72, 0.4], [0.05, 0.05, 0.05]), part(SH.ball, "#222222", [-0.16, 0.72, 0.4], [0.05, 0.05, 0.05]),
+    part(SH.ball, "#c48a52", [0.6, -0.15, 0.1], [0.2, 0.36, 0.2], [0, 0, 0.5]), part(SH.ball, "#c48a52", [-0.6, -0.15, 0.1], [0.2, 0.36, 0.2], [0, 0, -0.5]),
+    part(SH.ball, "#c48a52", [0.32, -0.85, 0.25], [0.24, 0.24, 0.24]), part(SH.ball, "#c48a52", [-0.32, -0.85, 0.25], [0.24, 0.24, 0.24])],
+  beachball: () => { const st = ["#ff4d4d", "#ffffff", "#4da6ff", "#ffd23f", "#ffffff", "#52d273"]; return [part(new THREE.SphereGeometry(1, 18, 12), (x, y, z) => (Math.abs(y) > 0.93 ? "#ffffff" : st[Math.floor(((Math.atan2(z, x) + Math.PI) / (Math.PI * 2)) * 6) % 6]))]; },
+  cone: () => [part(SH.cone, "#ff7a1a", [0, 0.1, 0], [0.55, 1.6, 0.55]), part(SH.cyl, "#ffffff", [0, 0.05, 0], [0.33, 0.24, 0.33]), part(SH.box, "#ff7a1a", [0, -0.75, 0], [1.2, 0.1, 1.2])],
+  chair: () => [part(SH.box, "#ffffff", [0, 0, 0], [1.1, 0.14, 1.1]), ...[[-0.45, -0.45], [0.45, -0.45], [-0.45, 0.45], [0.45, 0.45]].map(([x, z]) => part(SH.box, "#ffffff", [x, -0.55, z], [0.12, 1, 0.12])),
+    part(SH.box, "#ffffff", [0, 0.62, -0.5], [1.1, 1.1, 0.12]), part(SH.box, "#e8e8e8", [0, 0.62, -0.43], [0.8, 0.5, 0.04])],
+  bike: () => [part(SH.ring, "#262626", [0.75, -0.25, 0], [0.5, 0.5, 0.5]), part(SH.ring, "#262626", [-0.75, -0.25, 0], [0.5, 0.5, 0.5]), part(SH.box, "#ffffff", [0, 0.12, 0], [1.4, 0.08, 0.08]),
+    part(SH.box, "#ffffff", [0.25, -0.08, 0], [1.0, 0.07, 0.07], [0, 0, 0.6]), part(SH.box, "#ffffff", [-0.35, 0.28, 0], [0.07, 0.4, 0.07]), part(SH.box, "#333333", [-0.35, 0.5, 0], [0.34, 0.08, 0.16]),
+    part(SH.box, "#ffffff", [0.62, 0.2, 0], [0.07, 0.75, 0.07], [0, 0, -0.3]), part(SH.box, "#333333", [0.72, 0.55, 0], [0.06, 0.06, 0.6])],
+  mailbox: () => [part(SH.box, "#8a6a4a", [0, -0.45, 0], [0.18, 1.3, 0.18]), part(SH.box, "#ffffff", [0, 0.4, 0], [0.9, 0.42, 0.5]), part(SH.cyl, "#ffffff", [0, 0.61, 0], [0.25, 0.9, 0.25], [0, 0, H]),
+    part(SH.box, "#ff3030", [-0.22, 0.78, 0.27], [0.04, 0.32, 0.12])],
+  bench: () => [...[-0.25, 0, 0.25].map((z) => part(SH.box, "#c98a4b", [0, 0, z], [2.2, 0.07, 0.2])), part(SH.box, "#c98a4b", [0, 0.38, -0.38], [2.2, 0.2, 0.07]), part(SH.box, "#c98a4b", [0, 0.64, -0.38], [2.2, 0.2, 0.07]),
+    part(SH.box, "#333333", [0.95, -0.3, 0], [0.1, 0.6, 0.7]), part(SH.box, "#333333", [-0.95, -0.3, 0], [0.1, 0.6, 0.7]), part(SH.box, "#333333", [0.95, 0.35, -0.38], [0.1, 0.7, 0.07]), part(SH.box, "#333333", [-0.95, 0.35, -0.38], [0.1, 0.7, 0.07])],
+  car: () => [part(SH.box, "#ffffff", [0, 0, 0], [2.2, 0.55, 1.1]), part(SH.box, "#ffffff", [-0.15, 0.5, 0], [1.2, 0.5, 1.0]), part(SH.box, "#2a3a4a", [-0.15, 0.5, 0], [1.24, 0.3, 1.04]),
+    ...wheels([-0.7, 0.7], -0.28, [-0.52, 0.52], 0.3, 0.22), part(SH.box, "#fff6b0", [1.1, 0.05, 0.35], [0.05, 0.12, 0.24]), part(SH.box, "#fff6b0", [1.1, 0.05, -0.35], [0.05, 0.12, 0.24])],
+  tree: () => [part(SH.cyl, "#7a4e2a", [0, -0.55, 0], [0.22, 1.4, 0.22]), part(SH.blob, "#58b04a", [0, 0.55, 0], [0.95, 0.85, 0.95]), part(SH.blob, "#6cc45a", [0.2, 1.15, 0.1], [0.62, 0.6, 0.62])],
+  van: () => [part(SH.box, "#ffffff", [-0.2, 0.15, 0], [2.4, 1.1, 1.2]), part(SH.box, "#ffffff", [1.25, -0.05, 0], [0.7, 0.7, 1.15]), part(SH.box, "#2a3a4a", [1.27, 0.12, 0], [0.7, 0.32, 1.18]),
+    part(SH.box, "#ff8c42", [-0.2, 0.2, 0], [2.42, 0.14, 1.22]), ...wheels([-0.9, 0.95], -0.38, [-0.58, 0.58], 0.3, 0.2)],
+  house: () => [part(SH.box, "#ffffff", [0, 0, 0], [2, 1.5, 1.8]), part(SH.roof, "#d64545", [0, 1.3, 0], [1.55, 1.1, 1.42]), part(SH.box, "#a33a3a", [0.5, 1.5, -0.3], [0.25, 0.6, 0.25]),
+    part(SH.box, "#7a4e2a", [0, -0.4, 0.91], [0.4, 0.7, 0.06]), part(SH.box, "#7fc8ff", [-0.6, 0.18, 0.91], [0.38, 0.38, 0.06]), part(SH.box, "#7fc8ff", [0.6, 0.18, 0.91], [0.38, 0.38, 0.06]),
+    part(SH.box, "#7fc8ff", [1.01, 0.18, 0], [0.06, 0.38, 0.5]), part(SH.box, "#7fc8ff", [-1.01, 0.18, 0], [0.06, 0.38, 0.5])],
+  tower: () => {
+    const out = [part(SH.box, "#ffffff", [0, 0, 0], [1.4, 3.6, 1.4]), part(SH.box, "#8a8f99", [0, 1.85, 0], [1.55, 0.14, 1.55]), part(SH.cyl, "#8a8f99", [0.3, 2.3, 0.3], [0.04, 0.8, 0.04]), part(SH.box, "#7a4e2a", [0, -1.5, 0.71], [0.45, 0.6, 0.04])];
+    for (let row = 0; row < 6; row++) for (const a of [-0.35, 0.35]) out.push(part(SH.box, "#7fc8ff", [a, -0.9 + row * 0.5, 0.71], [0.3, 0.28, 0.04]), part(SH.box, "#7fc8ff", [0.71, -0.9 + row * 0.5, a], [0.04, 0.28, 0.3]), part(SH.box, "#7fc8ff", [-0.71, -0.9 + row * 0.5, a], [0.04, 0.28, 0.3]));
+    return out;
+  },
+};
+/** Merge a look's parts into one geometry: centered, its farthest point 1 from the middle. Returns { geo, hy (half its height), fp (half its footprint) }. */
+function buildLook(parts) {
+  const pos = [], nor = [], col = [], m = new THREE.Matrix4(), c = new THREE.Color();
+  for (const p of parts) {
+    const g = p.shape.index ? p.shape.toNonIndexed() : p.shape.clone();
+    g.applyMatrix4(m.compose(new THREE.Vector3(...p.at), new THREE.Quaternion().setFromEuler(new THREE.Euler(...p.rot)), new THREE.Vector3(...p.size)));
+    const P = g.attributes.position, N = g.attributes.normal;
+    for (let i = 0; i < P.count; i++) {
+      pos.push(P.getX(i), P.getY(i), P.getZ(i)); nor.push(N.getX(i), N.getY(i), N.getZ(i));
+      c.set(typeof p.color === "function" ? p.color(P.getX(i) - p.at[0], P.getY(i) - p.at[1], P.getZ(i) - p.at[2]) : p.color); col.push(c.r, c.g, c.b);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox, mid = bb.getCenter(new THREE.Vector3());
+  geo.translate(-mid.x, -mid.y, -mid.z);
+  let R = 0; for (let i = 0; i < pos.length; i += 3) R = Math.max(R, Math.hypot(pos[i] - mid.x, pos[i + 1] - mid.y, pos[i + 2] - mid.z));
+  geo.scale(1 / R, 1 / R, 1 / R);
+  return { geo, hy: (bb.max.y - bb.min.y) / 2 / R, fp: Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2 / R };
+}
+const LOOK = CONFIG.things.map((def) => buildLook(LOOKS[def.type]()));
+
+// ── SCENE ───────────────────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
+const cv = renderer.domElement;
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog("#cfeeff", 30, 200);
+const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 3000);
+function fit() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.fov = camera.aspect < 1 ? 74 : 60; camera.updateProjectionMatrix(); }
+addEventListener("resize", fit); addEventListener("orientationchange", fit); fit();
+scene.add(new THREE.HemisphereLight("#ffffff", "#7fbf62", 1.2));
+const sun = new THREE.DirectionalLight("#fff1d6", 1.9);
+sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
+scene.add(sun, sun.target);
+function canvasTex(w, h, paint, repeat) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h; paint(c.getContext("2d"), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+const deco = mulberry32(11); // scenery is the same on every screen
+// Sky: a dome, blue overhead to pale at the horizon, and clouds.
+const skyGeo = new THREE.SphereGeometry(2000, 32, 16), skyCol = [], skyTop = new THREE.Color("#4f9cf0"), skyLow = new THREE.Color("#dff3ff");
+for (let i = 0; i < skyGeo.attributes.position.count; i++) { const c = skyLow.clone().lerp(skyTop, clamp(skyGeo.attributes.position.getY(i) / 900, 0, 1)); skyCol.push(c.r, c.g, c.b); }
+skyGeo.setAttribute("color", new THREE.Float32BufferAttribute(skyCol, 3));
+const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+scene.add(sky);
+const mtx = new THREE.Matrix4(), q0 = new THREE.Quaternion();
+const clouds = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshLambertMaterial({ color: "#ffffff", emissive: "#ffffff", emissiveIntensity: 0.5, flatShading: true, fog: false }), 120);
+for (let i = 0; i < 40; i++) {
+  const a = deco() * Math.PI * 2, d = 250 + deco() * 900, y = 160 + deco() * 160, s = 18 + deco() * 30;
+  for (let k = 0; k < 3; k++) { mtx.compose(new THREE.Vector3(Math.cos(a) * d + (k - 1) * s * 1.2, y + (k === 1 ? s * 0.35 : 0), Math.sin(a) * d), q0, new THREE.Vector3(s * (k === 1 ? 1.4 : 1), s * 0.6, s)); clouds.setMatrixAt(i * 3 + k, mtx); }
+}
+scene.add(clouds);
+// Grass, with soft two-tone squares so you can feel yourself rolling.
+const grassTex = canvasTex(256, 256, (c) => {
+  c.fillStyle = "#8fd06a"; c.fillRect(0, 0, 256, 256); c.fillStyle = "#86c862"; c.fillRect(0, 0, 128, 128); c.fillRect(128, 128, 128, 128);
+  for (let i = 0; i < 900; i++) { c.fillStyle = deco() < 0.5 ? "#9edb78" : "#7cbd58"; c.fillRect(deco() * 256, deco() * 256, 2, 5); }
+  for (let i = 0; i < 18; i++) { const x = deco() * 256, y = deco() * 256; c.fillStyle = ["#ffffff", "#ffe066", "#ff9ccf"][i % 3]; for (let p = 0; p < 5; p++) { c.beginPath(); c.arc(x + Math.cos(p * 1.26) * 3, y + Math.sin(p * 1.26) * 3, 2.2, 0, 7); c.fill(); } }
+}, true);
+grassTex.repeat.set(70, 70);
+const ground = new THREE.Mesh(new THREE.CircleGeometry(CONFIG.world + 300, 96), new THREE.MeshLambertMaterial({ map: grassTex }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const decal = (mat) => Object.assign(mat, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+// The picnic blanket in the middle, where the crumbs are.
+const gingham = canvasTex(128, 128, (c) => { c.fillStyle = "#fff8f0"; c.fillRect(0, 0, 128, 128); c.fillStyle = "#e8404a88"; for (let k = 0; k < 8; k += 2) { c.fillRect(k * 16, 0, 16, 128); c.fillRect(0, k * 16, 128, 16); } }, true);
+gingham.repeat.set(5, 5);
+const blanket = new THREE.Mesh(new THREE.PlaneGeometry(24, 24), decal(new THREE.MeshLambertMaterial({ map: gingham })));
+blanket.rotation.set(-Math.PI / 2, 0, 0.3); blanket.position.y = 0.01; blanket.receiveShadow = true; scene.add(blanket);
+/** A flat ring around the middle from radius a to b, with a texture running along it. */
+function ringStrip(a, b, y, mat, vScale) {
+  const pos = [], uv = [], idx = [], n = 160;
+  for (let i = 0; i <= n; i++) {
+    const t = (i / n) * Math.PI * 2, cx = Math.cos(t), cz = Math.sin(t), along = (t * (a + b)) / 2 / vScale;
+    pos.push(cx * a, y, cz * a, cx * b, y, cz * b); uv.push(0, along, 1, along);
+    if (i < n) { const j = i * 2; idx.push(j, j + 2, j + 1, j + 1, j + 2, j + 3); }
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, decal(mat)); m.receiveShadow = true; scene.add(m); return m;
+}
+const roadTex = canvasTex(128, 128, (c) => { c.fillStyle = "#7d838e"; c.fillRect(0, 0, 128, 128); for (let i = 0; i < 300; i++) { c.fillStyle = `rgba(255,255,255,${deco() * 0.07})`; c.fillRect(deco() * 128, deco() * 128, 2, 2); } c.fillStyle = "#ffffff"; c.fillRect(4, 0, 4, 128); c.fillRect(120, 0, 4, 128); c.fillStyle = "#ffd23f"; c.fillRect(61, 0, 6, 64); }, true);
+ringStrip(CONFIG.road - 7, CONFIG.road + 7, 0.02, new THREE.MeshLambertMaterial({ map: roadTex }), 12);
+ringStrip(CONFIG.road + 7, CONFIG.road + 9.5, 0.02, new THREE.MeshLambertMaterial({ color: "#e6e1d6" }), 4);
+ringStrip(CONFIG.road - 9.5, CONFIG.road - 7, 0.02, new THREE.MeshLambertMaterial({ color: "#e6e1d6" }), 4);
+// A white picket fence at the edge, and hills beyond it.
+const POSTS = Math.round((CONFIG.world * Math.PI * 2) / 2.5), posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.22, 1.4, 0.22), new THREE.MeshLambertMaterial({ color: "#ffffff" }), POSTS);
+for (let i = 0; i < POSTS; i++) { const a = (i / POSTS) * Math.PI * 2; mtx.compose(new THREE.Vector3(Math.cos(a) * (CONFIG.world + 1), 0.7, Math.sin(a) * (CONFIG.world + 1)), q0, new THREE.Vector3(1, 1, 1)); posts.setMatrixAt(i, mtx); }
+scene.add(posts);
+for (const y of [0.45, 1.05]) { const rail = new THREE.Mesh(new THREE.TorusGeometry(CONFIG.world + 1, 0.08, 4, 360), new THREE.MeshLambertMaterial({ color: "#ffffff" })); rail.rotation.x = Math.PI / 2; rail.position.y = y; scene.add(rail); }
+const hills = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: "#ffffff" }), 60);
+for (let i = 0; i < 60; i++) {
+  const a = (i / 60) * Math.PI * 2 + deco() * 0.1, d = CONFIG.world + 70 + deco() * 160, s = 30 + deco() * 50;
+  mtx.compose(new THREE.Vector3(Math.cos(a) * d, -2, Math.sin(a) * d), q0, new THREE.Vector3(s * 1.6, s * (0.35 + deco() * 0.4), s * 1.6)); hills.setMatrixAt(i, mtx);
+  hills.setColorAt(i, new THREE.Color(["#7cc35a", "#6db650", "#8fcf6a"][i % 3]));
+}
+scene.add(hills);
+// One instanced mesh per kind of thing (hidden until the round's town is laid out).
+const thingMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+const meshes = CONFIG.things.map((def, d) => {
+  const m = new THREE.InstancedMesh(LOOK[d].geo, thingMat, def.count);
+  m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); m.castShadow = m.receiveShadow = true; m.frustumCulled = false; // instances ride on balls: skip culling
+  for (let k = 0; k < def.count; k++) { m.setMatrixAt(k, new THREE.Matrix4().makeScale(0, 0, 0)); m.setColorAt(k, new THREE.Color("#ffffff")); }
+  scene.add(m); return m;
+});
+
+// ── BALLS ───────────────────────────────────────────────────────────────────────────
+// A ball for rolling: { x, z, vx, vz } on the ground plane; its size comes from the host.
+const CORE = 0.85; // the ball itself is this share of its size; the stuck things make up the rest
+const speedFor = (r) => CONFIG.speed * Math.pow(r, CONFIG.speedPow);
+const canRoll = (r, t) => t.s < r * CONFIG.pickRatio && t.s >= r * CONFIG.minPick;
+const touching = (b, r, t, slack = 0) => (t.x - b.x) ** 2 + (t.z - b.z) ** 2 < (r + t.s * t.fp * 0.6 + slack) ** 2;
+const similar = (a, b) => a >= b * CONFIG.eatRatio && b >= a * CONFIG.eatRatio; // neither can roll the other up
+/** Roll ball b of radius r for dt, pushed along (fx, fz) (length ≤ 1); `mul` scales its top speed. */
+function stepBall(b, fx, fz, r, dt, mul = 1) {
+  const top = speedFor(r) * mul;
+  b.vx += fx * top * CONFIG.accel * dt; b.vz += fz * top * CONFIG.accel * dt;
+  const k = Math.exp(-CONFIG.drag * dt); b.vx *= k; b.vz *= k;
+  const sp = Math.hypot(b.vx, b.vz); if (sp > top) { b.vx *= top / sp; b.vz *= top / sp; }
+  b.x += b.vx * dt; b.z += b.vz * dt;
+  const d = Math.hypot(b.x, b.z), lim = CONFIG.world - r * 0.9; // the fence
+  if (d > lim) { const nx = b.x / d, nz = b.z / d, vn = b.vx * nx + b.vz * nz; b.x = nx * lim; b.z = nz * lim; if (vn > 0) { b.vx -= 1.4 * vn * nx; b.vz -= 1.4 * vn * nz; } }
+}
+/** Push ball b out of every thing on the ground that is too big to roll up. Returns how hard it hit. */
+function bumpThings(b, r, taken) {
+  let hit = 0;
+  for (const t of town) {
+    if (t.s < r * CONFIG.pickRatio || (taken[t.i] || ".") !== ".") continue;
+    const dx = b.x - t.x, dz = b.z - t.z, min = r * 0.9 + t.s * t.fp * 0.85, d2 = dx * dx + dz * dz;
+    if (d2 >= min * min) continue;
+    const d = Math.sqrt(d2) || 0.001, nx = dx / d, nz = dz / d, vn = b.vx * nx + b.vz * nz;
+    b.x = t.x + nx * min; b.z = t.z + nz * min;
+    if (vn < 0) { b.vx -= 1.35 * vn * nx; b.vz -= 1.35 * vn * nz; hit = Math.max(hit, -vn); }
+  }
+  return hit;
+}
+/** Steer toward (e.tx, e.tz) at `share` of top speed: the push to give stepBall. */
+function seek(e, r, share) {
+  const dx = e.tx - e.x, dz = e.tz - e.z, d = Math.hypot(dx, dz) || 1, top = speedFor(r) * share;
+  let fx = (((dx / d) * top - e.vx) / top) * 1.5, fz = (((dz / d) * top - e.vz) / top) * 1.5;
+  const l = Math.hypot(fx, fz); if (l > 1) { fx /= l; fz /= l; }
+  return [fx, fz];
+}
+// The ball model: a gummy sphere in the player's color, and a name tag that doesn't roll.
+const coreGeo = new THREE.SphereGeometry(1, 32, 20);
+function ballTex(color) {
+  const rand = mulberry32(parseInt(color.slice(1), 16) || 1);
+  return canvasTex(256, 128, (c, w, h) => {
+    c.fillStyle = color; c.fillRect(0, 0, w, h);
+    for (let i = 0; i < 80; i++) { c.fillStyle = rand() < 0.5 ? "#ffffff38" : "#00000022"; c.beginPath(); c.arc(rand() * w, rand() * h, 3 + rand() * 9, 0, 7); c.fill(); }
+    c.strokeStyle = "#ffffff70"; c.lineWidth = 6; c.beginPath(); for (let x = 0; x <= w; x += 4) c.lineTo(x, h / 2 + Math.sin((x / w) * Math.PI * 6) * 18); c.stroke();
+  });
+}
+function nameTag(name) {
+  const tex = canvasTex(256, 64, (c) => { c.font = "bold 34px system-ui"; c.textAlign = "center"; c.lineWidth = 6; c.strokeStyle = "#000a"; c.strokeText(name, 128, 44); c.fillStyle = "#fff"; c.fillText(name, 128, 44); });
+  return new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+}
+function makeBall(color, name) {
+  const g = new THREE.Group(), mat = new THREE.MeshStandardMaterial({ map: ballTex(color), roughness: 0.4, metalness: 0.05 });
+  const core = new THREE.Mesh(coreGeo, mat); core.castShadow = core.receiveShadow = true; g.add(core);
+  const tag = name ? nameTag(name) : null; if (tag) g.add(tag);
+  scene.add(g);
+  return { g, core, tag, mat, color, p: new THREE.Vector3(), q: new THREE.Quaternion(), r: 0, x: 0, z: 0, vx: 0, vz: 0, sx: 0, sz: 0, svx: 0, svz: 0, raw: "", at: 0, fresh: true };
+}
+const _ax = new THREE.Vector3(), _rq = new THREE.Quaternion();
+/** Draw ball view v at (x, z) with radius r, spun for the way it rolls; it glows while it can't be rolled up. */
+function placeBall(v, x, z, vx, vz, r, dt, safe, now) {
+  v.r = v.r > 0 ? v.r + (r - v.r) * Math.min(1, dt * 5) : r;
+  const c = v.r * CORE, sp = Math.hypot(vx, vz);
+  v.p.set(x, c, z); v.g.position.copy(v.p);
+  if (sp > 0.02) { _ax.set(vz / sp, 0, -vx / sp); v.q.premultiply(_rq.setFromAxisAngle(_ax, (sp * dt) / c)).normalize(); }
+  v.core.scale.setScalar(c); v.core.quaternion.copy(v.q);
+  v.mat.emissive.setScalar(safe ? 0.22 + 0.22 * Math.sin(now / 70) : 0);
+  if (v.tag) { const k = 0.5 + v.r * 0.6; v.tag.scale.set(3.2 * k, 0.8 * k, 1); v.tag.position.y = c + 0.25 + v.r * 0.9; }
+}
+
+// ── ROUND (HOST) ────────────────────────────────────────────────────────────────────
+const host = { wasHost: false, last: null, balls: new Map(), taken: new Array(N_THINGS).fill("."), ownedAt: new Map(), gone: new Map(), lastPub: 0, lastTidy: 0, dirty: false, ballsV: 0, waitUntil: 0 };
+/** The round as state has it, or the host's own newer write that hasn't come back yet. `v` only goes up. */
+function round() {
+  const r = shared("round", null);
+  return host.last && isHost() && (!r || host.last.v > r.v) ? host.last : r;
+}
+function writeRound(r) { r = { ...r, v: (round()?.v ?? 0) + 1 }; host.last = r; net.setShared("round", JSON.stringify(r)); return r; }
+const hosting = () => isHost() && host.wasHost;
+/** Can balls roll each other up yet? Not in the first seconds of a round. */
+const rollupsOn = (r = round()) => !!r && r.phase === "play" && Date.now() - r.playAt >= CONFIG.graceMs;
+/** Every ball this round: { i (id), s (letter), r (size), k (bursts), su (safe until), sp (spawn), by, and for bots b, n, c, x, z, vx, vz }. */
+function ballList() {
+  if (hosting()) return [...host.balls.values()];
+  const b = shared("balls", null), r = round();
+  return b && r && b.r === r.id && Array.isArray(b.l) ? b.l : [];
+}
+const takenMemo = { raw: null, rid: null, arr: [] };
+/** Who owns each thing: "." (on the ground) or a ball's letter. The host's live copy, or `taken` for this round. */
+function takenNow() {
+  if (hosting()) return host.taken;
+  const raw = S.shared.taken, rid = round()?.id;
+  if (takenMemo.raw !== raw || takenMemo.rid !== rid) {
+    const bar = typeof raw === "string" ? raw.indexOf("|") : -1;
+    Object.assign(takenMemo, { raw, rid, arr: bar > 0 && raw.slice(0, bar) === "r" + rid ? raw.slice(bar + 1).split("") : [] });
+  }
+  return takenMemo.arr;
+}
+const moveMemo = new Map();
+/** A player's latest `m` (round id, x, z, vx, vz), parsed once per change. */
+function moveOf(id) {
+  const p = S.entities.players?.[id]; if (!p) return null;
+  let c = moveMemo.get(id); if (!c || c.raw !== p.m) { c = { raw: p.m, m: parse(p.m, null) }; moveMemo.set(id, c); }
+  return c.m;
+}
+/** Where a ball is, for the host's rules: a bot's live position, mine, or a player's last `m`. */
+function posOf(e) {
+  if (e.b) return e;
+  if (e.i === net.sessionId) return me.ball;
+  const m = moveOf(e.i); return m && m.r === round()?.id ? m : null;
+}
+const nameOf = (e) => (e.b ? e.n : e.i === net.sessionId ? myName : S.entities.players[e.i]?.n || "Player");
+const colorOf = (e) => (e.b ? e.c : e.i === net.sessionId ? myColor : S.entities.players[e.i]?.c || "#cccccc");
+function adopt() { // become host: take over the round, the balls and who owns what exactly as state has them
+  host.balls.clear(); host.ownedAt.clear(); host.gone.clear(); host.last = null;
+  host.ballsV = shared("balls", null)?.v || 0;
+  for (const e of ballList()) host.balls.set(e.i, { ...e, sp: e.sp || [0, 6], vx: e.vx || 0, vz: e.vz || 0, sk: e.sk || 0.82, aggr: 0.6, think: 0, dashUntil: 0, dashReady: 0 });
+  const t = takenNow();
+  host.taken = t.length === N_THINGS ? [...t] : new Array(N_THINGS).fill(".");
+  host.dirty = true;
+}
+const freeSlot = () => [...SLOTS].find((l) => ![...host.balls.values()].some((e) => e.s === l)) || "z";
+const startSizeFor = (e) => (e.b ? (CONFIG.botStart ? lerp(CONFIG.botStart[0], CONFIG.botStart[1], Math.random()) : CONFIG.startSize) : e.i === net.sessionId && CONFIG.attractStart ? CONFIG.attractStart : CONFIG.startSize);
+function startSpot(n) { const a = n * 2.4 + 0.4, d = 7 + (n % 4) * 2.5; return [+(Math.cos(a) * d).toFixed(2), +(Math.sin(a) * d).toFixed(2)]; }
+/** Roughly how far from the middle the things a ball of radius r wants live. */
+function zoneFor(r) {
+  let best = CONFIG.things[0], bd = Infinity;
+  for (const d of CONFIG.things) { const diff = Math.abs(Math.log((d.size[0] + d.size[1]) / 2 / (r * 0.4))); if (diff < bd) { bd = diff; best = d; } }
+  return (best.ring[0] + best.ring[1]) / 2;
+}
+/** A respawn spot for a ball of radius r: near things its size, away from balls that could roll it up and from things it would hit. */
+function respawnSpot(r) {
+  const want = zoneFor(r);
+  for (let tries = 0; tries < 60; tries++) {
+    const spread = 24 + tries * 4, a = Math.random() * Math.PI * 2, d = clamp(want + (Math.random() - 0.5) * spread, 3, CONFIG.world - 8), x = Math.cos(a) * d, z = Math.sin(a) * d;
+    if ([...host.balls.values()].some((o) => { const p = posOf(o); return p && r < o.r * CONFIG.eatRatio && Math.hypot(p.x - x, p.z - z) < o.r * 4 + 6; })) continue;
+    if (town.some((t) => host.taken[t.i] === "." && t.s >= r * CONFIG.pickRatio && Math.hypot(t.x - x, t.z - z) < r + t.s * t.fp + 0.5)) continue;
+    return [+x.toFixed(2), +z.toFixed(2)];
+  }
+  return [0, 6];
+}
+function addHuman(id, r) {
+  const e = { i: id, s: freeSlot(), k: 0, su: 0, by: "" };
+  e.r = startSizeFor(e);
+  e.sp = r.phase === "ready" ? startSpot(host.balls.size) : respawnSpot(e.r);
+  if (r.phase !== "ready") e.su = Date.now() + CONFIG.safeFor;
+  host.balls.set(id, e); host.dirty = true;
+}
+function addBot(r) {
+  const used = new Set([...host.balls.values()].map((e) => e.n)), name = BOT_NAMES.find((n) => !used.has(n)) || "Roller";
+  const taken = new Set([myColor, ...Object.values(S.entities.players || {}).map((p) => p.c), ...[...host.balls.values()].map((e) => e.c)]);
+  const [lo, hi] = CONFIG.botSkill, id = "b" + Math.random().toString(36).slice(2, 6);
+  const e = { i: id, s: freeSlot(), b: 1, n: name, c: COLORS.find((c) => !taken.has(c)) || "#cccccc", sk: +lerp(lo, hi, Math.random()).toFixed(2), aggr: 0.3 + Math.random() * 0.4, k: 0, su: 0, by: "", vx: 0, vz: 0, think: 0, dashUntil: 0, dashReady: 0 };
+  e.r = startSizeFor(e);
+  e.sp = r.phase === "ready" ? startSpot(host.balls.size) : respawnSpot(e.r);
+  [e.x, e.z] = e.sp;
+  host.balls.set(id, e); host.dirty = true;
+}
+function removeBall(id) { // its things go back where they were
+  const e = host.balls.get(id); if (!e) return;
+  for (let i = 0; i < N_THINGS; i++) if (host.taken[i] === e.s) host.taken[i] = ".";
+  host.balls.delete(id); host.dirty = true;
+}
+function newRound(id) {
+  host.taken = new Array(N_THINGS).fill("."); host.ownedAt.clear();
+  [...host.balls.values()].forEach((e, n) => {
+    Object.assign(e, { r: startSizeFor(e), k: 0, su: 0, by: "", sp: startSpot(n), vx: 0, vz: 0 });
+    if (e.b) [e.x, e.z] = e.sp;
+  });
+  if (!publish(performance.now(), true, id)) return; // the world first, THEN the round that points at it
+  writeRound({ id, phase: "ready", seed: 1 + Math.floor(Math.random() * 2147483000), startAt: Date.now() + CONFIG.countdown, endsAt: 0, results: [] });
+}
+/** Everyone in the round, biggest first: [{ id, n, c, r }]. */
+function ranking() {
+  const live = new Set(livePlayers());
+  return [...host.balls.values()].filter((e) => e.b || live.has(e.i)).sort((a, b) => b.r - a.r).map((e) => ({ id: e.i, n: nameOf(e), c: colorOf(e), r: +e.r.toFixed(3) }));
+}
+/** Give thing t to ball e: the host's one decision per thing. */
+function grant(e, t, now) {
+  host.taken[t.i] = e.s; host.ownedAt.set(t.i, now); host.dirty = true;
+  e.r = Math.sqrt(e.r * e.r + CONFIG.growth * t.s * t.s);
+}
+/** A "grab" intent: each thing goes to the first ball that asks, if it is still on the ground, small enough, and near. */
+function applyGrab(id, ids) {
+  const r = round(), e = host.balls.get(id), p = e && posOf(e), now = performance.now();
+  if (!hosting() || !r || r.phase !== "play" || !p) return;
+  const slack = 1 + e.r * 0.6 + Math.hypot(p.vx || 0, p.vz || 0) * 0.25; // the player may have moved on since its last `m`
+  for (const i of ids) {
+    const t = town[i];
+    if (!t || host.taken[i] !== "." || !canRoll(e.r * 1.03, t) || !touching(p, e.r, t, slack)) continue;
+    grant(e, t, now);
+  }
+}
+/** A ball well inside a ball it's small enough for bursts. Biggest first, one burst per ball per tick. */
+function rollUps(now) {
+  const wall = Date.now(), live = new Set(livePlayers()), popped = new Set();
+  const all = [...host.balls.values()].filter((e) => e.b || live.has(e.i)).map((e) => ({ e, p: posOf(e) })).filter((x) => x.p).sort((a, b) => b.e.r - a.e.r);
+  for (const A of all) {
+    if (popped.has(A.e.i)) continue;
+    for (const B of all) {
+      if (A === B || popped.has(B.e.i) || B.e.r >= A.e.r * CONFIG.eatRatio || (B.e.su || 0) > wall) continue;
+      if (Math.hypot(A.p.x - B.p.x, A.p.z - B.p.z) < A.e.r * 0.8) { burst(B.e, A.e, B.p, now); popped.add(B.e.i); }
+    }
+  }
+}
+function burst(v, a, at, now) {
+  const before = v.r, after = Math.max(CONFIG.startSize, before * (1 - CONFIG.burstLoss)), lost = before * before - after * after;
+  a.r = Math.sqrt(a.r * a.r + CONFIG.eatGain * lost);
+  const mine = town.filter((t) => host.taken[t.i] === v.s).sort((p, q) => q.s - p.s), give = Math.round(mine.length * (lost / (before * before)));
+  for (const t of mine.slice(0, give)) { host.taken[t.i] = a.s; host.ownedAt.set(t.i, now); } // its biggest things stick to the winner
+  Object.assign(v, { r: after, k: v.k + 1, su: Date.now() + CONFIG.safeFor, by: nameOf(a) });
+  v.sp = respawnSpot(after);
+  if (v.b) Object.assign(v, { x: v.sp[0], z: v.sp[1], vx: 0, vz: 0, think: 0 });
+  host.dirty = true;
+  const fx = { v: v.i, by: a.i, x: +at.x.toFixed(1), z: +at.z.toFixed(1), r: +before.toFixed(2), c: colorOf(v) };
+  net.send("pop", fx); popFx(fx);
+}
+/** Once a second: things owned by a ball that's gone fall off; things buried deep inside a big ball go back to their spot. */
+function tidy(now) {
+  const bySlotE = new Map([...host.balls.values()].map((e) => [e.s, e]));
+  const where = [...host.balls.values()].map((e) => ({ e, p: posOf(e) })).filter((x) => x.p);
+  for (const t of town) {
+    const sl = host.taken[t.i]; if (sl === ".") continue;
+    const e = bySlotE.get(sl);
+    if (!e) { host.taken[t.i] = "."; host.dirty = true; continue; }
+    if (!host.ownedAt.has(t.i)) host.ownedAt.set(t.i, now);
+    if (t.s * 7 > e.r || now - host.ownedAt.get(t.i) < CONFIG.buryAfter) continue;
+    if (where.some(({ e: o, p }) => Math.hypot(p.x - t.x, p.z - t.z) < o.r + t.s + 1)) continue; // a ball is sitting on its spot
+    host.taken[t.i] = "."; host.ownedAt.delete(t.i); host.dirty = true;
+  }
+}
+/** Write `taken` (when it changed) and `balls` (with a version `v` that only goes up), about 10 times a second.
+ *  If someone already wrote a newer `balls`, our copy is stale: write nothing and adopt theirs. Returns false then. */
+function publish(now, force, rid = round()?.id) {
+  if (!force && now - host.lastPub < 100) return true;
+  if ((shared("balls", null)?.v || 0) > host.ballsV) { host.wasHost = false; return false; }
+  host.lastPub = now; host.ballsV++;
+  if (host.dirty || force) { net.setShared("taken", "r" + rid + "|" + host.taken.join("")); host.dirty = false; }
+  const f = (v) => +(+v || 0).toFixed(2);
+  net.setShared("balls", JSON.stringify({ v: host.ballsV, r: rid, l: [...host.balls.values()].map((e) => {
+    const o = { i: e.i, s: e.s, r: +e.r.toFixed(3), k: e.k, su: e.su || 0, sp: e.sp };
+    if (e.by) o.by = e.by;
+    if (e.b) Object.assign(o, { b: 1, n: e.n, c: e.c, sk: e.sk, x: f(e.x), z: f(e.z), vx: f(e.vx), vz: f(e.vz) });
+    return o;
+  }) }));
+  return true;
+}
+// Bots: run from bigger balls, chase smaller ones, otherwise roll toward the best thing to roll up.
+function thinkBot(e, now) {
+  e.think = now + 300 + Math.random() * 350;
+  const wall = Date.now(), live = new Set(livePlayers());
+  const others = [...host.balls.values()].filter((o) => o.i !== e.i && (o.b || live.has(o.i))).map((o) => ({ o, p: posOf(o) })).filter((x) => x.p);
+  let fx = 0, fz = 0;
+  for (const { o, p } of others) {
+    if (e.r >= o.r * CONFIG.eatRatio || (e.su || 0) > wall) continue;
+    const dx = e.x - p.x, dz = e.z - p.z, d = Math.hypot(dx, dz) || 1;
+    if (d < o.r * 3 + 6 && Math.random() > 0.2) { fx += dx / d / d; fz += dz / d / d; }
+  }
+  if (fx || fz) { const l = Math.hypot(fx, fz); e.tx = e.x + (fx / l) * (e.r * 6 + 8); e.tz = e.z + (fz / l) * (e.r * 6 + 8); e.ti = null; return; }
+  let prey = null, pd = e.r * 4 + 8; // chase a ball I can roll up (tiny ones aren't worth it)
+  for (const { o, p } of others) { if (o.r >= e.r * CONFIG.eatRatio * 0.95 || o.r < e.r * 0.25 || (o.su || 0) > wall) continue; const d = Math.hypot(p.x - e.x, p.z - e.z); if (d < pd) { pd = d; prey = p; } }
+  if (prey && rollupsOn() && Math.random() < (e.aggr ?? 0.6)) {
+    e.tx = prey.x + (prey.vx || 0) * 0.4; e.tz = prey.z + (prey.vz || 0) * 0.4; e.ti = null;
+    if (pd < e.r * 4 && now > (e.dashReady || 0)) { e.dashUntil = now + CONFIG.dashMs; e.dashReady = now + CONFIG.dashEvery * 1.6; }
+    return;
+  }
+  const taken = host.taken;
+  let best = null, bs = 0;
+  for (const t of town) {
+    if (taken[t.i] !== "." || !canRoll(e.r * 0.97, t)) continue;
+    const sc = ((t.s * t.s) / (Math.hypot(t.x - e.x, t.z - e.z) + e.r * 3)) * (0.7 + Math.random() * 0.6);
+    if (sc > bs) { bs = sc; best = t; }
+  }
+  if (best) { e.tx = best.x; e.tz = best.z; e.ti = best.i; return; }
+  const a = Math.random() * Math.PI * 2, d = zoneFor(e.r); e.tx = Math.cos(a) * d; e.tz = Math.sin(a) * d; e.ti = null;
+}
+/** Barely moved for a while (stuck on something big)? Head off somewhere else for a bit. */
+function unstick(e, now) {
+  if (now < (e.stuckCheck || 0)) return;
+  if (e.lastX != null && Math.hypot(e.x - e.lastX, e.z - e.lastZ) < e.r * 0.6) { const a = Math.random() * Math.PI * 2; e.tx = e.x + Math.cos(a) * e.r * 8; e.tz = e.z + Math.sin(a) * e.r * 8; e.ti = null; e.think = now + 1200; }
+  e.lastX = e.x; e.lastZ = e.z; e.stuckCheck = now + 1500;
+}
+function botTick(e, dt, now, playing) {
+  let fx = 0, fz = 0;
+  if (playing) {
+    if (now > e.think || (e.ti != null && host.taken[e.ti] !== ".")) thinkBot(e, now);
+    unstick(e, now);
+    [fx, fz] = seek(e, e.r, e.sk);
+  }
+  stepBall(e, fx, fz, e.r, dt, e.sk * (now < (e.dashUntil || 0) ? CONFIG.dash : 1));
+  bumpThings(e, e.r, host.taken);
+  if (playing) for (const t of town) if (host.taken[t.i] === "." && canRoll(e.r, t) && touching(e, e.r, t)) { grant(e, t, now); if (t.s > e.r * 0.2) beepAt(e, 700 - t.s * 40, 0.06, "sine", 0.04); }
+}
+/** Bots of about the same size bump each other (both move) and bump players (only the bot moves). */
+function separateBots() {
+  const live = new Set(livePlayers()), bots = [...host.balls.values()].filter((e) => e.b);
+  const humans = [...host.balls.values()].filter((e) => !e.b && live.has(e.i)).map((e) => ({ e, p: posOf(e), both: false })).filter((x) => x.p);
+  bots.forEach((a, n) => {
+    for (const o of [...bots.slice(n + 1).map((e) => ({ e, p: e, both: true })), ...humans]) {
+      if (!similar(a.r, o.e.r)) continue;
+      const dx = a.x - o.p.x, dz = a.z - o.p.z, d = Math.hypot(dx, dz), min = (a.r + o.e.r) * 0.9;
+      if (d >= min || d < 1e-4) continue;
+      const nx = dx / d, nz = dz / d, push = (min - d) * (o.both ? 0.5 : 1), rel = (a.vx - (o.p.vx || 0)) * nx + (a.vz - (o.p.vz || 0)) * nz;
+      a.x += nx * push; a.z += nz * push;
+      if (o.both) { o.p.x -= nx * push; o.p.z -= nz * push; }
+      if (rel < 0) { const k = o.both ? 0.6 : 1.2; a.vx -= rel * nx * k; a.vz -= rel * nz * k; if (o.both) { o.p.vx += rel * nx * k; o.p.vz += rel * nz * k; } }
+    }
+  });
+}
+function hostTick(dt, now) {
+  if (!host.wasHost) { adopt(); host.wasHost = true; } // adopt reads state, so before we count as hosting
+  let r = round();
+  if (!r) { newRound(1); return; }
+  if (r.id !== shownRound) return; // the town for this round gets built at the top of the next frame
+  const wall = Date.now(), live = livePlayers();
+  for (const id of live) { host.gone.delete(id); if (!host.balls.has(id)) addHuman(id, r); }
+  for (const [id, e] of host.balls) { // a player who left loses its ball (and its things go back); a frozen or hidden tab gets 30s
+    if (e.b || live.includes(id)) continue;
+    if (!host.gone.has(id)) host.gone.set(id, now);
+    if (!S.entities.players[id] || now - host.gone.get(id) > 30000) removeBall(id);
+  }
+  const humans = live.filter((id) => !(ATTRACT && id === net.sessionId)).length, bots = [...host.balls.values()].filter((e) => e.b), want = Math.max(0, CONFIG.seats - humans);
+  if (bots.length < want) addBot(r); else if (bots.length > want) removeBall(bots[bots.length - 1].i);
+  if (r.phase === "ready" && wall >= r.startAt) r = writeRound({ ...r, phase: "play", playAt: wall, endsAt: wall + CONFIG.roundMs });
+  else if (r.phase === "play" && wall >= r.endsAt) r = writeRound({ ...r, phase: "done", endsAt: wall + CONFIG.resultsFor, results: ranking() });
+  else if (r.phase === "done" && wall >= r.endsAt) { newRound(r.id + 1); return; }
+  const playing = r.phase === "play";
+  for (const e of host.balls.values()) if (e.b) botTick(e, dt, now, playing);
+  separateBots();
+  if (rollupsOn(r)) rollUps(now);
+  if (now - host.lastTidy > 1000) { host.lastTidy = now; tidy(now); }
+  publish(now, false);
+}
+function again() { const r = round(); if (r && r.phase === "done" && hosting()) newRound(r.id + 1); }
+const beepAt = (p, ...a) => { if (Math.hypot(p.x - me.ball.x, p.z - me.ball.z) < 6 + (me.view?.r || 1) * 6) beep(...a); };
+
+// ── ME ──────────────────────────────────────────────────────────────────────────────
+const myName = (() => { try { return localStorage.getItem("mpa-name") || ""; } catch { return ""; } })() ||
+  ["Sticky", "Rolly", "Lumpy", "Fuzzy", "Zippy", "Gooey"][Math.floor(Math.random() * 6)] + " " + ["Ball", "Roller", "Clump", "Blob", "Lump"][Math.floor(Math.random() * 5)];
+let myColor = COLORS[0]; // picked on join: the first color nobody in the room has
+/** Two people joined at once in one color (or a bot has mine): the one with the higher sessionId picks a free one. */
+function fixColor() {
+  const others = Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId), botColors = ballList().filter((e) => e.b).map((e) => e.c);
+  if (!others.some(([id, p]) => p.c === myColor && id < net.sessionId) && !botColors.includes(myColor)) return;
+  const taken = new Set([...others.map(([, p]) => p.c), ...botColors]), free = COLORS.find((c) => !taken.has(c));
+  if (free) { myColor = free; net.me.set("c", free); }
+}
+const me = { ball: { x: 0, z: 7, vx: 0, vz: 0 }, yaw: 0, view: null, key: "", pending: new Map(), queue: [], lastGrab: 0, lastSend: 0, dashUntil: 0, dashReady: 0, unlocked: new Set(), unlockReady: false, submitted: -1, brain: null, bumpCd: 0, popCd: 0, shake: 0 };
+const input = { up: false, down: false, left: false, right: false, dash: false, sx: 0, sy: 0 };
+const myEntry = () => ballList().find((e) => e.i === net.sessionId) || null;
+/** My size: the host's number plus the things I've grabbed that it hasn't answered yet. */
+function myR(e) { let a = e.r * e.r; for (const p of me.pending.values()) a += p.a; return Math.sqrt(a); }
+/** A new spot from the host (round start, joining, or after a burst): go there. */
+function spawnMe(e, r, key) {
+  const sameRound = me.key && me.key.split(":")[0] === String(r.id);
+  me.key = key;
+  if (sameRound && e.k > 0) { me.shake = 1; toast(`Rolled up by ${e.by || "a bigger ball"}!`, 2200); beep(180, 0.4, "sawtooth", 0.1, 60); }
+  me.ball = { x: e.sp[0], z: e.sp[1], vx: 0, vz: 0 };
+  me.yaw = Math.atan2(-e.sp[0], -e.sp[1]) || 0; // facing the middle, where the crumbs are
+  me.pending.clear(); me.queue.length = 0; me.dashUntil = 0; camSnap = true;
+  if (me.view) me.view.r = 0;
+}
+function myTick(dt, r, now) {
+  const e = myEntry();
+  if (!e) return;
+  const key = r.id + ":" + e.k;
+  if (key !== me.key) spawnMe(e, r, key);
+  const taken = takenNow();
+  for (const [i, p] of me.pending) if ((taken[i] || ".") !== "." || now - p.at > 1500) me.pending.delete(i); // answered (mine or someone else's), or lost
+  const R = myR(e), playing = r.phase === "play", dashing = now < me.dashUntil;
+  let fx = 0, fz = 0;
+  if (playing && ATTRACT) { // the preview drives your ball with the bot brain
+    if (!me.brain) me.brain = { i: net.sessionId, aggr: 0.9, think: 0, tx: 0, tz: 0 };
+    Object.assign(me.brain, { x: me.ball.x, z: me.ball.z, vx: me.ball.vx, vz: me.ball.vz, r: R, su: e.su });
+    if (now > me.brain.think || (me.brain.ti != null && (taken[me.brain.ti] || ".") !== ".")) thinkBot(me.brain, now);
+    unstick(me.brain, now);
+    [fx, fz] = seek(me.brain, R, 1);
+    const sp = Math.hypot(me.ball.vx, me.ball.vz);
+    if (sp > 0.3) me.yaw += wrap(Math.atan2(me.ball.vx, me.ball.vz) - me.yaw) * Math.min(1, dt * 2);
+  } else if (playing) {
+    let turn = (input.left ? 1 : 0) - (input.right ? 1 : 0) - input.sx, go = (input.up ? 1 : 0) - (input.down ? 0.6 : 0) - input.sy * (input.sy > 0 ? 0.6 : 1);
+    if (Math.abs(input.sx) > 0.3 && Math.abs(input.sy) < 0.3) go = Math.max(go, 0.35); // stick to the side: steer while rolling
+    turn = clamp(turn, -1, 1); go = clamp(go, -0.6, 1);
+    if (input.dash) { input.dash = false; if (now > me.dashReady) { me.dashUntil = now + CONFIG.dashMs; me.dashReady = now + CONFIG.dashEvery; const top = speedFor(R) * CONFIG.dash; me.ball.vx = Math.sin(me.yaw) * top; me.ball.vz = Math.cos(me.yaw) * top; beep(300, 0.25, "triangle", 0.08, 900); } }
+    if (dashing) go = 1;
+    me.yaw += turn * CONFIG.turn * dt;
+    fx = Math.sin(me.yaw) * go; fz = Math.cos(me.yaw) * go;
+    if (Math.abs(go) > 0.1) { // sideways sliding fades, so turning steers the ball
+      const lx = Math.cos(me.yaw), lz = -Math.sin(me.yaw), lat = me.ball.vx * lx + me.ball.vz * lz, k = 1 - Math.exp(-CONFIG.grip * dt);
+      me.ball.vx -= lx * lat * k; me.ball.vz -= lz * lat * k;
+    }
+  }
+  input.dash = false;
+  stepBall(me.ball, fx, fz, R, dt, dashing ? CONFIG.dash : 1);
+  const hit = bumpThings(me.ball, R, taken);
+  if (hit > speedFor(R) * 0.45 && now > me.bumpCd) { me.bumpCd = now + 350; me.shake = Math.max(me.shake, 0.35); beep(110, 0.15, "square", 0.07, 70); }
+  // bump balls about my size (a much bigger one can roll me up; a much smaller one I can roll up)
+  for (const v of views.values()) {
+    if (!v.e || !similar(R, v.e.r)) continue;
+    const dx = me.ball.x - v.x, dz = me.ball.z - v.z, d = Math.hypot(dx, dz), min = (R + v.e.r) * 0.9;
+    if (d >= min || d < 1e-4) continue;
+    const nx = dx / d, nz = dz / d, rel = (me.ball.vx - v.vx) * nx + (me.ball.vz - v.vz) * nz;
+    me.ball.x += nx * (min - d); me.ball.z += nz * (min - d);
+    if (rel < 0) { me.ball.vx -= rel * nx * 1.2; me.ball.vz -= rel * nz * 1.2; if (now > me.bumpCd) { me.bumpCd = now + 300; beep(520, 0.07, "sine", 0.07); } }
+  }
+  // roll things up: stuck on at once on my screen, then the host's answer
+  if (playing) {
+    let area = R * R;
+    for (const t of town) {
+      if ((taken[t.i] || ".") !== "." || me.pending.has(t.i)) continue;
+      const rr = Math.sqrt(area);
+      if (!canRoll(rr, t) || !touching(me.ball, rr, t)) continue;
+      const a = CONFIG.growth * t.s * t.s; area += a;
+      me.pending.set(t.i, { at: now, a }); me.queue.push(t.i); pickupFx(t, rr, now);
+    }
+    if (me.queue.length && (hosting() || now - me.lastGrab > 100)) {
+      me.lastGrab = now; const ids = me.queue.splice(0, 60);
+      if (hosting()) { applyGrab(net.sessionId, ids); for (const i of ids) if (host.taken[i] !== ".") me.pending.delete(i); }
+      else net.send("grab", { ids });
+    }
+  }
+  checkUnlocks(myR(e));
+  if (now - me.lastSend > 80) {
+    me.lastSend = now; const f = (v) => +v.toFixed(2);
+    net.me.set("m", JSON.stringify({ r: r.id, x: f(me.ball.x), z: f(me.ball.z), vx: f(me.ball.vx), vz: f(me.ball.vz) }));
+  }
+}
+/** "Now you can roll up chairs!" the first time you're big enough for a new kind of thing. */
+function checkUnlocks(R) {
+  for (const def of CONFIG.things) {
+    if (!def.unlock || me.unlocked.has(def.type) || def.size[0] >= R * CONFIG.pickRatio) continue;
+    me.unlocked.add(def.type);
+    if (me.unlockReady) { toast(`Now you can roll up ${def.unlock}!`, 2400); beep(660, 0.12); setTimeout(() => beep(990, 0.2), 110); }
+  }
+  me.unlockReady = true;
+}
+
+// ── THINGS ON SCREEN ────────────────────────────────────────────────────────────────
+// A thing is drawn on the ground, or stuck to the ball whose letter owns it, at a spot on
+// that ball's surface (where it touched, as seen on this screen) that rolls with it. Once a
+// ball has grown so big that a thing would hide inside it, it isn't drawn.
+const views = new Map(); // id -> drawn ball for everyone but me
+const bySlot = new Map(); // ball letter -> drawn ball, rebuilt every frame
+let shownRound = null;
+function resetRound(r) {
+  shownRound = r.id;
+  town = makeTown(r.seed);
+  const c = new THREE.Color();
+  for (const t of town) meshes[t.d].setColorAt(t.k, c.set(t.tint));
+  for (const m of meshes) m.instanceColor.needsUpdate = true;
+  me.key = ""; me.pending.clear(); me.queue.length = 0; me.unlocked.clear(); me.unlockReady = false;
+  $("over").hidden = true;
+}
+function viewOf(id, color, name) {
+  let v = views.get(id);
+  if (v && v.color !== color) { scene.remove(v.g); views.delete(id); v = null; } // they changed color
+  if (!v) { v = makeBall(color, ATTRACT ? "" : name); views.set(id, v); }
+  return v;
+}
+/** Ease a drawn ball toward where it said it was, plus how far it has rolled since. */
+function follow(v, k, dt, now, exact) {
+  if (exact) { Object.assign(v, { x: k.x, z: k.z, vx: k.vx, vz: k.vz, fresh: false }); return; }
+  const key = k.x + "," + k.z;
+  if (v.raw !== key) { Object.assign(v, { raw: key, sx: k.x, sz: k.z, svx: k.vx || 0, svz: k.vz || 0, at: now }); }
+  const el = Math.min(0.25, (now - v.at) / 1000), tx = v.sx + v.svx * el, tz = v.sz + v.svz * el;
+  if (v.fresh || Math.hypot(v.x - tx, v.z - tz) > 15 + v.r * 4) { v.x = tx; v.z = tz; v.fresh = false; } // first sight, or it respawned
+  const a = 1 - Math.pow(0.0005, dt); v.x += (tx - v.x) * a; v.z += (tz - v.z) * a; v.vx = v.svx; v.vz = v.svz;
+}
+function drawBalls(dt, now, r) {
+  bySlot.clear();
+  const live = new Set(livePlayers()), seen = new Set(), wall = Date.now(), exact = hosting();
+  for (const e of ballList()) {
+    if (e.i === net.sessionId) continue;
+    let src = e, name = e.n, color = e.c;
+    if (!e.b) { // a player: only while its heartbeat is live and it's in this round
+      if (!live.has(e.i)) continue;
+      src = moveOf(e.i); if (!src || !r || src.r !== r.id) continue;
+      const p = S.entities.players[e.i]; name = p.n || "Player"; color = p.c || "#cccccc";
+    }
+    seen.add(e.i);
+    const v = viewOf(e.i, color, name);
+    follow(v, src, dt, now, exact && e.b); // the host draws its own bots from the live simulation
+    placeBall(v, v.x, v.z, v.vx, v.vz, e.r, dt, (e.su || 0) > wall, now);
+    v.e = e; bySlot.set(e.s, v);
+  }
+  for (const [id, v] of views) if (!seen.has(id)) { scene.remove(v.g); views.delete(id); }
+  const e = myEntry();
+  if (e && me.key) {
+    if (!me.view || me.view.color !== myColor) { if (me.view) scene.remove(me.view.g); me.view = makeBall(myColor, ""); }
+    me.view.g.visible = true;
+    placeBall(me.view, me.ball.x, me.ball.z, me.ball.vx, me.ball.vz, myR(e), dt, (e.su || 0) > wall, now);
+    bySlot.set(e.s, me.view);
+  } else if (me.view) me.view.g.visible = false;
+}
+const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _iq = new THREE.Quaternion(), HIDE = new THREE.Matrix4().makeScale(0, 0, 0);
+const easeOut = (k) => 1 - (1 - k) ** 3, easeBack = (k) => 1 + 2.7 * (k - 1) ** 3 + 1.7 * (k - 1) ** 2;
+/** A thing changed hands: work out where it sits on its new ball, and fly it there. */
+function ownerChanged(t, o, now) {
+  const was = t.shown; t.shown = o; t.anim = null;
+  if (o === ".") { t.popAt = was === undefined ? 0 : now; return; } // back on the ground: it pops up
+  const v = bySlot.get(o);
+  if (was === undefined || !v) { t.dir = t.seedDir; return; } // already stuck when we got here
+  if (was === ".") t.dir = _p.set(t.x - v.p.x, t.y - v.p.y, t.z - v.p.z).normalize().applyQuaternion(_iq.copy(v.q).invert()).clone(); // where it touched
+  else t.dir = t.seedDir; // handed over in a roll-up
+  t.anim = { from: t.wp.clone(), t0: now };
+}
+function drawThings(now) {
+  const taken = takenNow(), mySlot = myEntry()?.s;
+  for (const t of town) {
+    let o = taken[t.i] || ".";
+    if (o === "." && mySlot && me.pending.has(t.i)) o = mySlot; // mine on my screen until the host answers
+    if (o !== t.shown) ownerChanged(t, o, now);
+    if (o === ".") {
+      const s = t.s * (t.popAt ? easeBack(Math.min(1, (now - t.popAt) / 350)) : 1);
+      _m.compose(_p.set(t.x, t.y, t.z), t.homeQ, _s.setScalar(s)); t.wp.copy(_p);
+    } else {
+      const v = bySlot.get(o);
+      if (!v || t.s < v.r * CORE * 0.08) _m.copy(HIDE); // its ball isn't here, or it's too small to poke out
+      else {
+        _p.copy(t.dir).multiplyScalar(CORE * v.r * 0.93).applyQuaternion(v.q).add(v.p);
+        if (t.anim) { const k = (now - t.anim.t0) / 220; if (k >= 1) t.anim = null; else _p.lerpVectors(t.anim.from, _p.clone(), easeOut(k)); }
+        _m.compose(_p, _q.multiplyQuaternions(v.q, t.rot), _s.setScalar(t.s)); t.wp.copy(_p);
+      }
+    }
+    meshes[t.d].setMatrixAt(t.k, _m);
+  }
+  for (const m of meshes) m.instanceMatrix.needsUpdate = true;
+}
+
+// ── EFFECTS ─────────────────────────────────────────────────────────────────────────
+// Confetti: a pool of small cubes, reused.
+const CONF = 260, confetti = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: "#fff" }), CONF);
+confetti.instanceMatrix.setUsage(THREE.DynamicDrawUsage); confetti.frustumCulled = false; scene.add(confetti);
+for (let i = 0; i < CONF; i++) { confetti.setColorAt(i, new THREE.Color("#fff")); confetti.setMatrixAt(i, HIDE); }
+const bits = Array.from({ length: CONF }, () => ({ life: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, s: 0.1 }));
+let nextBit = 0;
+function burstFx(x, y, z, color, n, speed, size) {
+  const col = new THREE.Color(color), alt = new THREE.Color("#ffe14d");
+  for (let k = 0; k < n; k++) {
+    const i = nextBit, b = bits[i], a = Math.random() * Math.PI * 2, s = speed * (0.3 + Math.random() * 0.7); nextBit = (nextBit + 1) % CONF;
+    Object.assign(b, { life: 1, x, y, z, vx: Math.cos(a) * s, vy: speed * (0.4 + Math.random()), vz: Math.sin(a) * s, s: size * (0.6 + Math.random() * 0.8), g: speed * 3 });
+    confetti.setColorAt(i, k % 3 ? col : alt);
+  }
+  confetti.instanceColor.needsUpdate = true;
+}
+const _e = new THREE.Euler();
+function tickConfetti(dt) {
+  bits.forEach((b, i) => {
+    if (b.life <= 0) return;
+    b.life -= dt * 1.4; b.vy -= b.g * dt; b.x += b.vx * dt; b.y = Math.max(0, b.y + b.vy * dt); b.z += b.vz * dt;
+    const s = b.life > 0 ? b.s * Math.min(1, b.life * 2) : 0;
+    _m.compose(_p.set(b.x, b.y, b.z), _q.setFromEuler(_e.set(b.life * 9, b.life * 7, 0)), _s.setScalar(s)); confetti.setMatrixAt(i, _m);
+  });
+  confetti.instanceMatrix.needsUpdate = true;
+}
+function pickupFx(t, R, now) {
+  const big = t.s / (R * CONFIG.pickRatio);
+  if (big > 0.3) burstFx(t.x, t.y, t.z, t.tint === "#ffffff" ? "#ffffff" : t.tint, Math.round(4 + big * 10), 1.5 + R * 2.5, R * 0.07);
+  if (now > me.popCd) { me.popCd = now + 45; beep(1300 - big * 900, 0.07 + big * 0.08, big > 0.6 ? "triangle" : "sine", 0.06 + big * 0.05, 1600 - big * 800); }
+}
+function popFx(m) {
+  burstFx(m.x, (m.r || 1) * CORE, m.z, m.c || "#ffffff", 60, 3 + (m.r || 1) * 4, (m.r || 1) * 0.16);
+  const near = Math.hypot(m.x - me.ball.x, m.z - me.ball.z) < 10 + (me.view?.r || 1) * 8;
+  if (near) { beep(90, 0.45, "sawtooth", 0.1, 40); me.shake = Math.max(me.shake, 0.6); }
+  if (m.by === net.sessionId) { toast("You rolled up a ball!", 1800); setTimeout(() => beep(880, 0.15), 100); }
+}
+// Sound: tiny WebAudio blips, started by the first key or touch.
+let actx = null;
+function beep(freq, dur, type = "sine", vol = 0.12, to = 0) {
+  if (!actx) return;
+  const o = actx.createOscillator(), g = actx.createGain(); o.type = type; o.frequency.value = Math.max(30, freq);
+  if (to) o.frequency.exponentialRampToValueAtTime(Math.max(30, to), actx.currentTime + dur);
+  g.gain.setValueAtTime(vol, actx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
+  o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + dur);
+}
+
+// ── HUD & RESULTS ───────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const ord = (n) => n + (n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : "th");
+/** A ball's size as people say it: how wide it is (radius 1 = 20 cm across). */
+const fmtSize = (r) => { const cm = r * 20; return cm < 100 ? `${Math.round(cm)} cm` : `${(cm / 100).toFixed(2)} m`; };
+const fmtTime = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let toastTimer = 0;
+function toast(text, ms = 1500) { if (ATTRACT) return; const m = $("msg"); m.textContent = text; m.classList.add("on"); clearTimeout(toastTimer); toastTimer = setTimeout(() => m.classList.remove("on"), ms); }
+let board = null, boardFor = -1, lastCount = "", started = 0;
+function hud(r, now) {
+  const wall = Date.now();
+  const count = r.phase === "ready" && r.startAt - wall < 3000 ? String(Math.max(1, Math.ceil((r.startAt - wall) / 1000))) : r.phase === "play" && wall - r.playAt < 900 ? "ROLL!" : "";
+  if (count !== lastCount) { lastCount = count; if (count === "ROLL!") beep(880, 0.4, "square", 0.07); else if (count) beep(440, 0.15, "square", 0.07); }
+  $("count").textContent = count;
+  if (ATTRACT) { for (const id of ["size", "time", "top", "net", "hint"]) $(id).textContent = ""; return; }
+  const e = myEntry(), R = e ? myR(e) : CONFIG.startSize, left = r.phase === "play" ? Math.max(0, r.endsAt - wall) : r.phase === "ready" ? CONFIG.roundMs : 0;
+  $("size").innerHTML = `${fmtSize(R)}<small>your ball</small>`;
+  $("time").textContent = fmtTime(left); $("time").classList.toggle("low", r.phase === "play" && left < 10000);
+  const rows = [...views.values()].filter((v) => v.e).map((v) => ({ n: v.e.b ? v.e.n : S.entities.players[v.e.i]?.n || "Player", c: v.color, r: v.e.r }));
+  if (e) rows.push({ n: "You", c: myColor, r: R, mine: true });
+  rows.sort((a, b) => b.r - a.r).forEach((x, k) => { x.at = k + 1; });
+  const top = rows.slice(0, 5), mine = rows.find((x) => x.mine);
+  if (mine && mine.at > 5) top[4] = mine; // you're always on the list
+  $("top").innerHTML = top.map((x) => `<div class="${x.mine ? "me" : ""}"><span><i style="background:${esc(x.c)}"></i>${x.at}. ${esc(x.n)}</span><span>${fmtSize(x.r)}</span></div>`).join("");
+  if (rollupsOn(r) && me.rollupsToast !== r.id) { me.rollupsToast = r.id; if (CONFIG.graceMs) { toast("Roll-ups are on! Watch out for bigger balls", 2600); beep(520, 0.3, "square", 0.06, 260); } }
+  $("hint").textContent = r.phase === "ready" && r.startAt - wall >= 3000 ? "Next round starting…" :
+    now - started < 15000 && r.phase !== "done" ? (touchUI ? "Stick to roll and steer · DASH · roll up anything smaller than you" : "W to roll · A/D to steer · Space to dash · roll up anything smaller than you") : "";
+  const n = livePlayers().length;
+  $("net").textContent = net.offline ? "Offline: playing with bots" : dropped ? "Reconnecting…" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the round" : ""}`;
+  $("over").hidden = r.phase !== "done";
+  if (r.phase === "done") {
+    const res = r.results || [], at = res.findIndex((x) => x.id === net.sessionId) + 1;
+    $("overTitle").textContent = at === 1 ? "You rolled the biggest ball!" : at ? `You came ${ord(at)}` : "Time's up!";
+    $("results").innerHTML = res.map((x) => `<li class="${x.id === net.sessionId ? "me" : ""}"><i style="background:${esc(x.c || "#ccc")}"></i>${esc(x.n)}<span>${fmtSize(x.r)}</span></li>`).join("");
+    $("next").textContent = `Next round in ${Math.max(0, Math.ceil((r.endsAt - wall) / 1000))}s`;
+    if (boardFor !== r.id) { boardFor = r.id; showBoard(r, res[at - 1]); }
+  }
+}
+function showBoard(r, mine) {
+  const list = $("board");
+  if (!board) { list.innerHTML = "<li class=\"note\">Leaderboards need a connection.</li>"; return; }
+  const submit = mine && me.submitted !== r.id ? board.submit(Math.round(mine.r * 20)).catch(() => null) : Promise.resolve();
+  me.submitted = r.id;
+  list.innerHTML = "<li class=\"note\">Loading…</li>";
+  submit.then(() => board.top(10)).then(({ entries }) => {
+    list.innerHTML = entries.length ? entries.map((x) => `<li>${esc(x.username || "Player")}<span>${fmtSize(x.score / 20)}</span></li>`).join("") : "<li class=\"note\">No balls yet. Roll the first.</li>";
+  }).catch(() => { list.innerHTML = "<li class=\"note\">Couldn't load the leaderboard.</li>"; });
+}
+$("again").onclick = () => { if (hosting()) again(); else net.send("again", {}); };
+
+// ── INPUT ───────────────────────────────────────────────────────────────────────────
+const touchUI = matchMedia("(pointer: coarse)").matches && !ATTRACT;
+$("stick").hidden = $("dashBtn").hidden = !touchUI;
+document.body.classList.toggle("touch", touchUI);
+const KEYS = { ArrowUp: "up", w: "up", W: "up", ArrowDown: "down", s: "down", S: "down", ArrowLeft: "left", a: "left", A: "left", ArrowRight: "right", d: "right", D: "right" };
+const wakeAudio = () => { if (!actx && !ATTRACT) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } };
+addEventListener("keydown", (e) => { wakeAudio(); const k = KEYS[e.key]; if (k) { e.preventDefault(); input[k] = true; } if (e.key === " ") { e.preventDefault(); if (!e.repeat) input.dash = true; } });
+addEventListener("keyup", (e) => { const k = KEYS[e.key]; if (k) input[k] = false; });
+addEventListener("blur", () => { input.up = input.down = input.left = input.right = false; });
+const stick = $("stick"), knob = $("knob");
+let stickId = null;
+function moveStick(e) {
+  const r = stick.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  let dx = (e.clientX - cx) / 50, dy = (e.clientY - cy) / 50; const l = Math.hypot(dx, dy); if (l > 1) { dx /= l; dy /= l; }
+  input.sx = dx; input.sy = dy; knob.style.transform = `translate(${dx * 40}px, ${dy * 40}px)`;
+}
+stick.addEventListener("pointerdown", (e) => { e.preventDefault(); wakeAudio(); stickId = e.pointerId; stick.setPointerCapture(e.pointerId); moveStick(e); });
+stick.addEventListener("pointermove", (e) => { if (e.pointerId === stickId) moveStick(e); });
+for (const ev of ["pointerup", "pointercancel"]) stick.addEventListener(ev, (e) => { if (e.pointerId !== stickId) return; stickId = null; input.sx = input.sy = 0; knob.style.transform = ""; });
+const dashBtn = $("dashBtn");
+dashBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); wakeAudio(); input.dash = true; dashBtn.classList.add("on"); });
+for (const ev of ["pointerup", "pointercancel", "pointerleave"]) dashBtn.addEventListener(ev, () => dashBtn.classList.remove("on"));
+cv.addEventListener("pointerdown", wakeAudio);
+document.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
+
+// ── MAIN LOOP ───────────────────────────────────────────────────────────────────────
+let last = performance.now(), lastAwake = performance.now(), lastHb = 0, lastHud = 0, camYaw = 0, camSnap = true;
+const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
+function frame(now) {
+  requestAnimationFrame(frame); // first, so one error can't stop the game
+  const awake = performance.now(); // not `now`: after a long freeze the first frame can be stamped from before it ended
+  if (awake - lastAwake > 1000) { host.wasHost = false; host.last = null; host.waitUntil = awake + 700; } // this tab was frozen or hidden: forget being host, let the newer state arrive, then adopt it
+  lastAwake = awake;
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; // the first frame can be stamped before `last`
+  if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); fixColor(); }
+  let r = round();
+  if (r && r.id !== shownRound) resetRound(r);
+  if (isHost() && !dropped && awake >= host.waitUntil) hostTick(dt, now); else host.wasHost = false;
+  r = round();
+  if (r && r.id !== shownRound) resetRound(r);
+  if (r) myTick(dt, r, now);
+  drawBalls(dt, now, r);
+  drawThings(now);
+  tickConfetti(dt);
+  updateCamera(dt, now);
+  renderer.render(scene, camera);
+  if (r && now - lastHud > 100) { lastHud = now; hud(r, now); dashBtn.classList.toggle("wait", now < me.dashReady); }
+}
+function updateCamera(dt, now) {
+  const on = me.view && me.view.g.visible, R = on ? me.view.r : 1.5, c = on ? me.view.p : _p.set(0, 0, 0);
+  camYaw += wrap(me.yaw - camYaw) * Math.min(1, dt * 6);
+  const back = ATTRACT ? 1.6 + R * 5.2 : 1.3 + R * 5.6, high = ATTRACT ? 1.2 + R * 4.2 : 0.7 + R * 3.2; // the camera pulls back as you grow
+  camPos.set(c.x - Math.sin(camYaw) * back, high, c.z - Math.cos(camYaw) * back);
+  const taken = takenNow();
+  for (const t of town) if ((taken[t.i] || ".") === "." && t.s > R * 0.5 && Math.hypot(t.x - camPos.x, t.z - camPos.z) < t.s * t.fp + 1) camPos.y = Math.max(camPos.y, t.y * 2 + 1); // don't sit inside a house
+  if (camSnap) { camera.position.copy(camPos); camSnap = false; } else camera.position.lerp(camPos, 1 - Math.pow(0.002, dt));
+  me.shake = Math.max(0, me.shake - dt * 2.5);
+  const sh = me.shake * R * 0.3;
+  camLook.set(c.x + Math.sin(camYaw) * R * 2 + (Math.random() - 0.5) * sh, R * 0.6 + (Math.random() - 0.5) * sh, c.z + Math.cos(camYaw) * R * 2);
+  camera.lookAt(camLook);
+  camera.near = Math.max(0.03, R * 0.06); camera.updateProjectionMatrix();
+  scene.fog.near = back * 3 + 10; scene.fog.far = back * 3 + 170 + R * 45;
+  sun.position.set(c.x + 30 + R * 20, 60 + R * 40, c.z + 20 + R * 14); sun.target.position.set(c.x, 0, c.z);
+  const ext = 10 + R * 12; Object.assign(sun.shadow.camera, { left: -ext, right: ext, top: ext, bottom: -ext, near: 1, far: 220 + R * 150 }); sun.shadow.camera.updateProjectionMatrix();
+  sky.position.copy(camera.position);
+}
+
+(async function start() {
+  net = await connect();
+  net.onState((st) => { S = st; });
+  net.on("grab", (msg, from) => { if (isHost() && msg && Array.isArray(msg.ids)) applyGrab(from, msg.ids.slice(0, 60)); });
+  net.on("again", () => again());
+  net.on("pop", (msg) => { if (msg && typeof msg.x === "number") popFx(msg); });
+  net.onDisconnect(() => { dropped = true; host.wasHost = false; $("net").textContent = "Reconnecting…"; }); // our sends wait for the reconnect, so don't host meanwhile
+  net.onReconnect(() => { dropped = false; host.wasHost = false; host.last = null; host.waitUntil = performance.now() + 700; }); // the full state comes back: adopt it, never our old copy
+  if (!net.offline && typeof MP !== "undefined") board = MP.auth({ key: MP_CONNECT.key, apiUrl: MP_CONNECT.apiUrl }).leaderboard(CONFIG.board);
+  const taken = new Set([...Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([, p]) => p.c), ...ballList().filter((e) => e.b).map((e) => e.c)]);
+  myColor = COLORS.find((c) => !taken.has(c)) || COLORS[Math.floor(Math.random() * COLORS.length)];
+  net.me.set({ n: myName, c: myColor, hb: Date.now() });
+  started = performance.now();
+  if (TEST) window.__test = { // ?test only: lets the test scripts look inside
+    me: () => { const e = myEntry(); return { id: net.sessionId, x: me.ball.x, z: me.ball.z, r: e && e.r, R: e && myR(e), slot: e && e.s, k: e && e.k, host: isHost(), pending: me.pending.size }; },
+    round: () => round(), balls: () => ballList(), taken: () => takenNow().join(""), shown: () => town.map((t) => t.shown || ".").join(""),
+    things: () => town.map((t) => ({ i: t.i, type: CONFIG.things[t.d].type, s: +t.s.toFixed(3), x: +t.x.toFixed(2), z: +t.z.toFixed(2) })),
+    teleport: (x, z) => { me.ball.x = x; me.ball.z = z; me.ball.vx = me.ball.vz = 0; },
+    setSize: (id, r) => { const e = host.balls.get(id); if (hosting() && e) { e.r = r; host.dirty = true; return true; } return false; },
+  };
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

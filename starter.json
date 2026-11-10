@@ -1,0 +1,22 @@
+{
+  "name": "Sticky Roller",
+  "genre": "arcade",
+  "dim": "3D",
+  "mode": "Party",
+  "players": "2–8",
+  "hook": "Roll up crumbs, then toys, then cars, then houses.",
+  "how": "Roll a sticky ball around a toy town. Anything smaller than you sticks on and you grow, so bigger things become rollable, and smaller players too. Biggest ball when the time runs out wins.",
+  "controls": "W to roll, A/D to steer, Space to dash, or a stick and a Dash button",
+  "uses": [
+    ["Leaderboard", "The biggest balls ever rolled, in cm."],
+    ["Host-run rules", "The host's browser decides who gets each thing (first to touch it) and who rolls up whom; if it leaves, the next player takes over."],
+    ["Host-run rounds", "The host's browser starts each timed round and posts the sizes at the end."],
+    ["Bots", "Bots roll, grow and chase smaller balls until enough people join."],
+    ["Live sync", "Every ball rolls for everyone at once, with the same things stuck on it."]
+  ],
+  "ideas": [
+    "Make it a kitchen with fruit, pans and fridges",
+    "Add a golden thing that doubles your size",
+    "Make the round 5 minutes and add skyscrapers"
+  ]
+}
