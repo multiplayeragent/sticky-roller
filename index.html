@@ -138,6 +138,8 @@ const CONFIG = {
   road: 98,               // the ring road's radius (cars and vans park on it)
   botSkill: [0.7, 0.86],  // bots' top speed, as a share of yours
   botStart: null,         // [min, max] starting radius for bots (null = startSize)
+  botCommit: 1.8,         // how much a bot prefers the thing it is already rolling toward (1 = it changes its mind all the time)
+  botMood: 2500,          // ms a bot sticks with a decision: hunt a smaller ball or not, watch out for bigger balls or not
   board: "biggest-ball",
   // Every kind of thing in the town. size = [min, max] radius in units; count = how many;
   // ring = [from, to] distance from the middle; face: "road" parks it along the road,
@@ -688,16 +690,23 @@ function thinkBot(e, now) {
   e.think = now + 300 + Math.random() * 350;
   const wall = Date.now(), live = new Set(livePlayers());
   const others = [...host.balls.values()].filter((o) => o.i !== e.i && (o.b || live.has(o.i))).map((o) => ({ o, p: posOf(o) })).filter((x) => x.p);
-  let fx = 0, fz = 0;
-  for (const { o, p } of others) {
-    if (e.r >= o.r * CONFIG.eatRatio || (e.su || 0) > wall) continue;
+  // It makes up its mind (hunt or not, careful or careless) every couple of seconds, not on every think, so it doesn't wobble.
+  if (now > (e.moodUntil || 0)) { e.moodUntil = now + CONFIG.botMood; e.hunting = Math.random() < (e.aggr ?? 0.6); e.careless = Math.random() < 0.2; }
+  const danger = (o) => o.r * 3 + 6; // how close a ball that could roll it up may come
+  const threats = e.careless || !rollupsOn() || (e.su || 0) > wall ? [] : others.filter(({ o }) => e.r < o.r * CONFIG.eatRatio);
+  let fx = 0, fz = 0, close = false;
+  for (const { o, p } of threats) {
     const dx = e.x - p.x, dz = e.z - p.z, d = Math.hypot(dx, dz) || 1;
-    if (d < o.r * 3 + 6 && Math.random() > 0.2) { fx += dx / d / d; fz += dz / d / d; }
+    if (d < danger(o)) { fx += dx / d / d; fz += dz / d / d; if (d < o.r * 1.5 + 3) close = true; }
   }
-  if (fx || fz) { const l = Math.hypot(fx, fz); e.tx = e.x + (fx / l) * (e.r * 6 + 8); e.tz = e.z + (fz / l) * (e.r * 6 + 8); e.ti = null; return; }
+  if (fx || fz) {
+    const l = Math.hypot(fx, fz); e.tx = e.x + (fx / l) * (e.r * 6 + 8); e.tz = e.z + (fz / l) * (e.r * 6 + 8); e.ti = null;
+    if (close && now > (e.dashReady || 0)) { e.dashUntil = now + CONFIG.dashMs; e.dashReady = now + CONFIG.dashEvery * 1.6; } // about to be rolled up: dash away
+    return;
+  }
   let prey = null, pd = e.r * 4 + 8; // chase a ball I can roll up (tiny ones aren't worth it)
   for (const { o, p } of others) { if (o.r >= e.r * CONFIG.eatRatio * 0.95 || o.r < e.r * 0.25 || (o.su || 0) > wall) continue; const d = Math.hypot(p.x - e.x, p.z - e.z); if (d < pd) { pd = d; prey = p; } }
-  if (prey && rollupsOn() && Math.random() < (e.aggr ?? 0.6)) {
+  if (prey && rollupsOn() && e.hunting) {
     e.tx = prey.x + (prey.vx || 0) * 0.4; e.tz = prey.z + (prey.vz || 0) * 0.4; e.ti = null;
     if (pd < e.r * 4 && now > (e.dashReady || 0)) { e.dashUntil = now + CONFIG.dashMs; e.dashReady = now + CONFIG.dashEvery * 1.6; }
     return;
@@ -706,11 +715,14 @@ function thinkBot(e, now) {
   let best = null, bs = 0;
   for (const t of town) {
     if (taken[t.i] !== "." || !canRoll(e.r * 0.97, t)) continue;
-    const sc = ((t.s * t.s) / (Math.hypot(t.x - e.x, t.z - e.z) + e.r * 3)) * (0.7 + Math.random() * 0.6);
+    let sc = ((t.s * t.s) / (Math.hypot(t.x - e.x, t.z - e.z) + e.r * 3)) * (0.7 + Math.random() * 0.6);
+    if (t.i === e.ti) sc *= CONFIG.botCommit; // it sticks with the thing it was already rolling toward
+    if (sc > bs && threats.some(({ o, p }) => Math.hypot(t.x - p.x, t.z - p.z) < danger(o))) sc *= 0.15; // not worth it next to a ball that could roll it up
     if (sc > bs) { bs = sc; best = t; }
   }
   if (best) { e.tx = best.x; e.tz = best.z; e.ti = best.i; return; }
   const a = Math.random() * Math.PI * 2, d = zoneFor(e.r); e.tx = Math.cos(a) * d; e.tz = Math.sin(a) * d; e.ti = null;
+  e.think = now + 1500; // nothing to roll up right now: head for one spot for a while
 }
 /** Barely moved for a while (stuck on something big)? Head off somewhere else for a bit. */
 function unstick(e, now) {
